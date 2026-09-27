@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>html,body{margin:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Кошелёк</title>
@@ -33,6 +33,9 @@
   --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
 }
 *{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden;overscroll-behavior-x:none}
+body{touch-action:pan-y;-webkit-text-size-adjust:100%}
+.tbl-wrap{touch-action:pan-x pan-y}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 "Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;padding-inline:16px;padding-block:12px 150px;font-variant-numeric:tabular-nums}
 .wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .stack{display:flex;flex-direction:column;gap:16px;width:100%;min-width:0}
@@ -144,7 +147,7 @@ td.m{text-transform:capitalize;font-weight:600}
 .fab{position:fixed;right:max(16px,calc(50% - 244px));bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:6;border:0;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:15px;padding:13px 20px;border-radius:999px;box-shadow:0 8px 24px rgba(15,107,90,.35)}
 
 .scrim{position:fixed;inset:0;background:rgba(10,16,13,.45);z-index:10;display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:var(--surface);width:100%;max-width:560px;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;max-height:92%;overflow:auto;animation:up .22s ease-out}
+.sheet{background:var(--surface);width:100%;max-width:560px;overflow-x:hidden;overscroll-behavior:contain;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;max-height:92%;overflow:auto;animation:up .22s ease-out}
 @keyframes up{from{transform:translateY(30px);opacity:.6}}
 @media (prefers-reduced-motion:reduce){.sheet{animation:none}.bar i{transition:none}}
 .sheet-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
@@ -153,8 +156,9 @@ td.m{text-transform:capitalize;font-weight:600}
 .fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .fields>*{grid-column:1/-1;min-width:0}
 .fields>.half{grid-column:auto}
-.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface-2);border-radius:12px;padding:4px}
-.seg button{border:0;background:transparent;padding:9px 4px;border-radius:9px;font-weight:600;color:var(--muted);font-size:14px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--surface-2);border-radius:12px;padding:4px}
+.seg button{border:0;background:transparent;padding:9px 2px;border-radius:9px;font-weight:600;color:var(--muted);font-size:13px;line-height:1.2;min-width:0}
+.seg.many{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 .amount{display:flex;align-items:baseline;gap:6px;border-bottom:2px solid var(--line);padding-bottom:4px}
 .amount:focus-within{border-color:var(--accent)}
@@ -168,7 +172,7 @@ td.m{text-transform:capitalize;font-weight:600}
 .hint{font-size:12px;color:var(--muted)}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px}
 .check input{width:20px;height:20px;accent-color:var(--accent);flex:none;margin-top:1px}
-input.in,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+input.in,select{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
 .primary{border:0;background:var(--accent);color:var(--accent-ink);font-weight:600;padding:14px;border-radius:12px;font-size:16px;width:100%}
 .ghost{border:1px solid var(--line);background:none;padding:12px 14px;border-radius:12px;font-weight:600;width:100%}
 .danger{border:1px solid var(--line);background:none;color:var(--out);font-weight:600;padding:12px;border-radius:12px;width:100%}
@@ -1235,7 +1239,7 @@ function fieldHTML(f,v){
   switch(f.type){
     case "note":return `<p class="note" style="margin:0">${f.label}</p>`;
     case "big":return `<label class="amount"><input class="big" id="${id}" data-k="${f.k}" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="${esc(f.label)}" value="${esc(String(val).replace(".",","))}"><span>₽</span></label>`;
-    case "seg":return `<div class="${cls}">${f.label?`<span class="label">${esc(f.label)}</span>`:""}<div class="seg" role="group">${f.opts.map(([k,l])=>`<button type="button" data-seg="${f.k}" data-v="${k}" aria-pressed="${String(v)===String(k)}">${esc(l)}</button>`).join("")}</div>${hint}</div>`;
+    case "seg":return `<div class="${cls}">${f.label?`<span class="label">${esc(f.label)}</span>`:""}<div class="seg${f.opts.length>3?" many":""}" role="group">${f.opts.map(([k,l])=>`<button type="button" data-seg="${f.k}" data-v="${k}" aria-pressed="${String(v)===String(k)}">${esc(l)}</button>`).join("")}</div>${hint}</div>`;
     case "chips":return `<div class="${cls}"><span class="label">${esc(f.label)}</span><div class="chips">${f.opts.map(([k,l])=>`<button type="button" data-seg="${f.k}" data-v="${esc(k)}" aria-pressed="${v===k}">${esc(l)}</button>`).join("")}</div></div>`;
     case "select":return `<label class="${cls}"><span class="label">${esc(f.label)}</span><select id="${id}" data-k="${f.k}" data-re="1">${f.opts.map(([k,l])=>`<option value="${esc(k)}"${String(v)===String(k)?" selected":""}>${esc(l)}</option>`).join("")}</select>${hint}</label>`;
     case "check":return `<label class="check ${f.half?"half":""}"><input type="checkbox" id="${id}" data-k="${f.k}" data-re="1"${v?" checked":""}><span>${esc(f.label)}${f.hint?`<br><span class="hint">${f.hint}</span>`:""}</span></label>`;
@@ -1813,7 +1817,7 @@ document.addEventListener("change",e=>{
 COLS.forEach(c=>{loaded[c]=false});
 render();
 if(TG){
-  try{TG.ready();TG.expand()}catch(e){}
+  try{TG.ready();TG.expand();if(TG.isVersionAtLeast&&TG.isVersionAtLeast("7.7")&&TG.disableVerticalSwipes)TG.disableVerticalSwipes()}catch(e){}
   const theme=()=>{document.documentElement.dataset.theme=TG.colorScheme==="dark"?"dark":"light";try{TG.setHeaderColor(TG.colorScheme==="dark"?"#0F1512":"#EDF0EA");TG.setBackgroundColor(TG.colorScheme==="dark"?"#0F1512":"#EDF0EA")}catch(e){}};
   theme();try{TG.onEvent("themeChanged",theme)}catch(e){}
 }
