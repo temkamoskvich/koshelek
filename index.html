@@ -513,11 +513,16 @@ function customToday(d,payments,today){
     paidPrin:rows.slice(0,paid).reduce((a,r)=>a+r.amount,0),paidInt:0,lastRow:rows[rows.length-1]||null};
 }
 
-/* ---------- Кубышка: бесплатные дни, потом плата за каждый день по сумме долга ---------- */
-const KUB_TIERS="1000:0; 3000:9; 10000:19; 25000:39; 59";
+/* ---------- Кубышка Т-Банка ----------
+   Если вернуть всё за бесплатные дни — бесплатно. Если нет, комиссия начисляется за каждый день
+   с даты, когда взяли (ступени по сумме долга, но не больше 0,8% долга в день).
+   Начисленное 1-го числа нужно погасить до 25-го, иначе сверху штраф 20% годовых. */
+const KUB_TIERS="1000:0; 3000:8; 10000:19; 25000:39; 59";
+const KUB_OLD="1000:0; 3000:9; 10000:19; 25000:39; 59";
 function parseTiers(str){
+  if(!str||str===KUB_OLD)str=KUB_TIERS;
   const out=[];
-  String(str||KUB_TIERS).split(/[;\n]+/).map(x=>x.trim()).filter(Boolean).forEach(p=>{
+  String(str).split(/[;\n]+/).map(x=>x.trim()).filter(Boolean).forEach(p=>{
     const m=p.replace(/\s/g,"").replace(",",".").split(":");
     if(m.length===2)out.push({upTo:+m[0],fee:+m[1]});else out.push({upTo:Infinity,fee:+m[0]});
   });
@@ -525,37 +530,60 @@ function parseTiers(str){
   if(!out.length||out[out.length-1].upTo!==Infinity)out.push({upTo:Infinity,fee:out.length?out[out.length-1].fee:0});
   return out;
 }
-function kubDayFee(s,bal){if(!(bal>0.005))return 0;for(const t of s.tiers)if(bal<=t.upTo)return t.fee||0;return 0}
-/* Плата за дни (from, to], кроме бесплатных. */
-function kubFees(s,from,to){
-  const start=from>s.freeEnd?from:s.freeEnd;
-  const n=days(start,to);
-  return n>0?n*kubDayFee(s,s.principal):0;
+function kubDayFee(s,bal){
+  if(!(bal>0.005))return 0;
+  let f=0;for(const t of s.tiers)if(bal<=t.upTo){f=t.fee||0;break}
+  return Math.min(f,bal*s.capPct/100);
 }
-function kubAdvance(s,to){if(to>s.t){const f=kubFees(s,s.t,to);s.misc+=f;s.tFees+=f;s.t=to}}
+/* Прогнать Кубышку по дням до даты to (дни [s.t, to)). */
+function kubAdvance(s,to){
+  let guard=0;
+  while(s.t<to&&guard++<4000){
+    if(s.t===s.freeEnd&&s.pend>0){s.misc+=s.pend;s.tFees+=s.pend;s.pend=0}
+    const owed=s.principal+s.misc;
+    if(owed<=0.005){s.t=to;break}
+    const fee=kubDayFee(s,s.principal);
+    if(s.t<s.freeEnd)s.pend+=fee;else{s.misc+=fee;s.tFees+=fee}
+    if(s.t>=s.penStart){const p=owed*s.penRate/100/365;s.misc+=p;s.tFees+=p;s.tPen+=p}
+    s.t=addDays(s.t,1);
+  }
+  if(s.t===s.freeEnd&&s.pend>0&&s.principal>0){s.misc+=s.pend;s.tFees+=s.pend;s.pend=0}
+}
 function kubPay(s,amt){
   const x=Math.min(amt,s.misc);s.misc=r2(s.misc-x);amt-=x;
   const y=Math.min(amt,s.principal);s.principal=r2(s.principal-y);s.paidPrin+=x+y;
+  if(s.principal<=0.005&&s.t<s.freeEnd)s.pend=0;
 }
 function kubInit(d){
   const taken=d.takenDate||d.balanceDate;
   const s={id:d.id,name:d.name,kind:"kub",isKub:true,principal:+d.balance||0,taken,freeDays:+d.freeDays||7,
-    tiers:parseTiers(d.tiers),misc:0,t:taken,tFees:0,paidPrin:0,paidInt:0,history:[],perYear:12,fees:0,carry:0,termLeft:1,growing:false};
+    tiers:parseTiers(d.tiers),capPct:d.capPct!=null&&d.capPct!==""?+d.capPct:0.8,penRate:d.penaltyRate!=null&&d.penaltyRate!==""?+d.penaltyRate:20,
+    misc:0,pend:0,t:taken,tFees:0,tPen:0,paidPrin:0,paidInt:0,history:[],perYear:12,fees:0,carry:0,termLeft:1,growing:false};
   s.freeEnd=addDays(taken,s.freeDays);
+  s.lastFree=addDays(s.freeEnd,-1);
+  s.billDate=nextDueAfter(addDays(s.freeEnd,-1),1);
+  s.billDue=dueIn(mkOf(s.billDate),25);
+  s.penStart=addDays(s.billDue,1);
   return s;
 }
+const kubClone=(s)=>Object.assign({},s,{history:[]});
 function kubToday(d,payments,today){
   const s=kubInit(d);
   payments.filter(p=>p.date>=s.taken&&p.date<=today).sort((a,b)=>a.date.localeCompare(b.date))
     .forEach(p=>{kubAdvance(s,p.date);kubPay(s,+p.amount)});
   kubAdvance(s,today);
-  const plan=d.planDate&&d.planDate>=today?d.planDate:(s.freeEnd>=today?s.freeEnd:today);
+  const plan=d.planDate&&d.planDate>=today?d.planDate:(s.lastFree>=today?s.lastFree:today);
   s.planDate=plan;s.nextDue=plan;
-  s.nextAmount=r2(s.principal+s.misc+kubFees(s,s.t,plan));
+  const c=kubClone(s);kubAdvance(c,plan);
+  s.nextAmount=r2(c.principal+c.misc);
   s.accruedNow=r2(s.misc);
+  s.pendNow=r2(s.pend);
+  /* Сколько спишут разом, если не вернуть в бесплатные дни. */
+  s.lateCost=r2(s.pend+kubDayFee(s,s.principal)*Math.max(0,days(s.t,s.freeEnd)));
   s.dayFee=kubDayFee(s,s.principal);
   s.rate=s.principal>0?r2(s.dayFee*365/s.principal*100):0;
-  s.paying=today>s.freeEnd&&s.principal>0;
+  s.paying=today>=s.freeEnd&&s.principal+s.misc>0.005;
+  s.penalty=today>=s.penStart&&s.principal+s.misc>0.005;
   s.overdue=false;
   return s;
 }
@@ -1076,7 +1104,7 @@ function vDebts(){
     if(s.isCustom&&!s.allRows.length)flags.push('<span class="pill warn">Заполните график</span>');
     return `<button class="debt" data-act="debt" data-id="${esc(s.id)}">
       <div class="debt-top"><div><span class="pill ${s.kind}">${KIND[s.kind]}</span> ${flags.join(" ")}<div class="n" style="margin-top:6px">${esc(s.name)}</div><div class="small muted">${esc(d.bank||"")}</div></div>
-      <div style="text-align:right"><div class="debt-sum">${m0(s.principal)}</div><div class="small muted">${s.isCard?pct(s.rP)+" / "+pct(s.rC):s.isKub?(s.paying?"платно: "+m0(s.dayFee)+" в день":"бесплатно до "+dLabel(s.freeEnd)):s.isCustom?"по графику банка":pct(s.rate)+" годовых"}${s.step?"<br>"+EVERY[s.every]:""}</div></div></div>
+      <div style="text-align:right"><div class="debt-sum">${m0(s.principal)}</div><div class="small muted">${s.isCard?pct(s.rP)+" / "+pct(s.rC):s.isKub?(s.paying?"платно: "+m0(s.dayFee)+" в день":"бесплатно до "+dLabel(s.lastFree)):s.isCustom?"по графику банка":pct(s.rate)+" годовых"}${s.step?"<br>"+EVERY[s.every]:""}</div></div></div>
       ${s.kind==="card"&&+d.limit>0?`<div class="bar"><i class="${s.principal/d.limit>.9?"over":s.principal/d.limit>.6?"warn":""}" style="width:${Math.min(100,s.principal/d.limit*100)}%"></i></div><div class="meta"><span>Использовано ${Math.round(s.principal/d.limit*100)}% лимита</span><span>Доступно ${m0(Math.max(0,d.limit-s.principal))}</span></div>`:""}
       <div class="kv"><div><span>${s.isCard?(s.payMode==="min"?"Минимальный":"Для льготы"):s.isKub?"Вернуть":"Платёж"}</span><b>${s.principal>0?money(s.nextAmount):"—"}</b></div><div><span>Когда</span><b>${s.principal>0?dLabel(s.nextDue):"—"}</b></div><div><span>Закрою</span><b>${payoff?esc(mkLabel(payoff)):s.principal>0?"не видно":"—"}</b></div></div>
     </button>`;
@@ -1333,9 +1361,9 @@ function debtForm(d){
       {k:"balance",type:"money",label:"Остаток долга, ₽",half:true,show:fixed,hint:"Сколько осталось вернуть без процентов"},
       {k:"balance",type:"money",label:"Долг по Кубышке, ₽",half:true,show:k("kub")},
       {k:"takenDate",type:"date",label:"Когда взяли",half:true,show:k("kub")},
-      {k:"freeDays",type:"seg",label:"Без платы",show:k("kub"),opts:[["7","7 дней"],["14","14 дней"]],hint:"14 дней — для зарплатных клиентов и с подпиской Pro или Premium"},
-      {k:"planDate",type:"date",label:"Планирую вернуть",show:k("kub"),hint:"Пусто — в последний бесплатный день"},
-      {k:"tiers",type:"text",label:"Плата в день по сумме долга",show:k("kub"),hint:"«до суммы: ₽ в день», последнее число — для долга больше. Сейчас стоят тарифы Т-Банка, сверьте их с приложением банка"},
+      {k:"freeDays",type:"seg",label:"Без платы",show:k("kub"),opts:[["7","7 дней"],["14","14 дней, Premium"]],hint:"14 дней — только с подпиской Premium"},
+      {k:"planDate",type:"date",label:"Планирую вернуть",show:k("kub"),hint:"Пусто — в последний бесплатный день. Если позже, комиссия считается за все дни"},
+      {k:"tiers",type:"text",label:"Плата в день по сумме долга",show:k("kub"),hint:"«до суммы: ₽ в день», последнее число — для долга больше. Стоят тарифы Т-Банка"},
       {k:"purchBal",type:"money",label:"Долг по покупкам, ₽",half:true,show:k("card"),hint:"Без рассрочек"},
       {k:"cashBal",type:"money",label:"Долг по снятиям и переводам, ₽",half:true,show:k("card")},
       {k:"balanceDate",type:"date",label:x=>isCustom(x)?"Платежи до этой даты уже внесены":"Остаток на дату",half:true,show:x=>x.kind!=="kub"},
@@ -1539,31 +1567,32 @@ function debtView(id){
 function kubView(s,d){
   const id=s.id, demo=id.startsWith("ex-"), L={day:"numeric",month:"long"};
   const tiers=F.parseTiers(d.tiers);
+  const owed=s.principal+s.accruedNow;
   const alerts=[];
-  if(s.principal>0){
-    if(!s.paying)alerts.push(`<div class="alert">Верните <b>${money(s.principal)}</b> до <b>${dLabel(s.freeEnd,L)}</b> включительно, и это будет бесплатно. Потом за каждый день ${money(kubFee(tiers,s.principal))} при текущем долге.</div>`);
-    else alerts.push(`<div class="alert bad">Бесплатные дни закончились ${dLabel(s.freeEnd,L)}. Сейчас ${money(s.dayFee)} в день, это около ${pct(s.rate)} годовых. Уже набежало ${money(s.accruedNow)}.</div>`);
-    if(d.planDate&&s.planDate>s.freeEnd)alerts.push(`<p class="note" style="margin:0">Если вернуть ${dLabel(s.planDate,L)}, нужно будет ${money(s.nextAmount)}, из них плата за дни ${money(s.nextAmount-s.principal)}.</p>`);
-    alerts.push(`<p class="note" style="margin:0">В приложении банка пополнить карту мало: чтобы закрыть долг, в Кубышке нужно нажать «Вернуть».</p>`);
+  if(owed>0.005){
+    if(!s.paying)alerts.push(`<div class="alert">Верните <b>${money(s.principal)}</b> до <b>${dLabel(s.lastFree,L)}</b> включительно, и это будет бесплатно. Если не успеть, ${dLabel(s.freeEnd,L)} сразу начислится <b>${money(s.lateCost)}</b>: комиссия за все дни с ${dLabel(s.taken,L)}. Дальше по ${money(s.dayFee)} в день.</div>`);
+    else if(!s.penalty)alerts.push(`<div class="alert bad">Бесплатный период закончился, комиссия идёт каждый день: ${money(s.dayFee)}, это около ${pct(s.rate)} годовых. Уже набежало ${money(s.accruedNow)}. Погасите всё до <b>${dLabel(s.billDue,L)}</b>, иначе сверху начнётся штраф ${pct(20)} годовых.</div>`);
+    else alerts.push(`<div class="alert bad">Срок ${dLabel(s.billDue,L)} прошёл: кроме комиссии ${money(s.dayFee)} в день идёт штраф ${pct(20)} годовых, примерно ${money(owed*0.2/365)} в день. Уже набежало ${money(s.accruedNow)}.</div>`);
+    if(d.planDate&&s.planDate>=s.freeEnd)alerts.push(`<p class="note" style="margin:0">Если вернуть ${dLabel(s.planDate,L)}, нужно будет ${money(s.nextAmount)}, из них комиссия ${money(s.nextAmount-s.principal)}.</p>`);
   }
   const hist=data.tx.filter(t=>t.debtId===id).sort((a,b)=>b.date.localeCompare(a.date));
   openView(s.name,`
     <div class="facts">
-      <div><span>Долг</span><b>${money(s.principal)}</b></div>
-      <div><span>Бесплатно до</span><b>${dLabel(s.freeEnd,L)}</b></div>
-      <div><span>Плата сейчас</span><b class="${s.paying?"neg":""}">${s.paying?money(s.dayFee)+" в день":"нет"}</b></div>
-      <div><span>Набежало платы</span><b class="neg">${money(s.accruedNow)}</b></div>
-      <div><span>Вернуть по плану</span><b>${s.principal>0?money(s.nextAmount)+", "+dLabel(s.planDate):"—"}</b></div>
+      <div><span>Долг</span><b>${money(owed)}</b></div>
+      <div><span>Бесплатно до</span><b>${dLabel(s.lastFree,L)} включительно</b></div>
+      <div><span>Комиссия сейчас</span><b class="${s.paying?"neg":""}">${s.paying?money(s.dayFee)+" в день":"нет"}</b></div>
+      <div><span>Набежало</span><b class="neg">${money(s.accruedNow)}</b></div>
+      <div><span>Вернуть по плану</span><b>${owed>0.005?money(s.nextAmount)+", "+dLabel(s.planDate):"—"}</b></div>
       <div><span>Уже вернули</span><b>${m0(s.paidPrin)}</b></div>
     </div>
     ${alerts.join("")}
     ${demo?`<div class="demo">Это пример. Добавьте свою Кубышку кнопкой «+ Долг».</div>`:`<div class="btns"><button class="primary" data-act="payDebt" data-id="${esc(id)}">Записать возврат</button><button class="ghost" data-act="editDebt" data-id="${esc(id)}">Изменить</button></div>`}
-    <h3 style="font-size:14px">Плата после бесплатных дней</h3>
+    <h3 style="font-size:14px">Комиссия в день, если не вернуть вовремя</h3>
     <div class="list">${tiers.map((t,i)=>`<div class="meta"><span>${t.upTo===Infinity?"больше "+m0(tiers[i-1]?tiers[i-1].upTo:0):(i?m0(tiers[i-1].upTo)+" – ":"до ")+m0(t.upTo)}</span><b>${t.fee?m0(t.fee)+" в день":"бесплатно"}</b></div>`).join("")}</div>
+    <p class="note" style="margin:0">Не больше 0,8% долга в день. Начисленное 1-го числа нужно погасить до 25-го, иначе добавится штраф 20% годовых. Точные условия: приложение Т-Банка → «Счёт карты» → «Кубышка» → «Детали» → «Тариф и условия».</p>
     ${hist.length?`<h3 style="font-size:14px">Возвраты</h3><div class="list">${hist.map(t=>`<div class="item"><span class="ic in">+</span><span class="t"><span>Возврат</span><span>${dLabel(t.date,{day:"numeric",month:"long",year:"numeric"})}</span></span><span class="a">${money(t.amount)}</span></div>`).join("")}</div>`:""}
   `);
 }
-function kubFee(tiers,bal){for(const t of tiers)if(bal<=t.upTo)return t.fee||0;return 0}
 function customView(s,d){
   const id=s.id, demo=id.startsWith("ex-"), L={day:"numeric",month:"short",year:"2-digit"};
   const rows=s.allRows;
