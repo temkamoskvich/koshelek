@@ -105,7 +105,7 @@ button.item:hover{background:var(--surface-2)}
 .debt-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .debt-top .n{font-weight:600}
 .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
-.pill.card{color:var(--out)} .pill.loan{color:var(--accent)} .pill.installment{color:var(--c-sn)}
+.pill.card{color:var(--out)} .pill.loan{color:var(--accent)} .pill.installment{color:var(--c-sn)} .pill.kub{color:var(--warn)}
 .pill.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .pill.bad{background:color-mix(in srgb,var(--out) 16%,transparent);color:var(--out)}
 .debt-sum{font-family:Unbounded,sans-serif;font-size:22px;letter-spacing:-.01em}
@@ -247,7 +247,9 @@ function termFor(sum,rate,pay,py){
   if(!(sum>0))return 0; if(!(pay>0))return Infinity;
   const i=rate/100/(py||12); if(!i)return Math.ceil(sum/pay-1e-9);
   if(pay<=sum*i)return Infinity;
-  return Math.ceil(-Math.log(1-sum*i/pay)/Math.log(1+i)-1e-9);
+  const n=-Math.log(1-sum*i/pay)/Math.log(1+i);
+  /* Платёж в банке округлён до копеек, поэтому хвост меньше 2% платежа не считаем отдельным месяцем. */
+  return Math.max(1,n-Math.floor(n)<0.02?Math.floor(n):Math.ceil(n));
 }
 
 /* Начальное состояние долга, из которого считаются и «сегодня», и прогноз. */
@@ -263,6 +265,11 @@ function initState(d){
   st.step=st.every==="w"?7:st.every==="2w"?14:0;
   st.perYear=st.every==="w"?52:st.every==="2w"?26:12;
   st.anchor=d.firstPay||d.balanceDate;
+  /* Сколько платежей осталось, если известны платёж и последний платёж (или только платёж). */
+  if(!st.termLeft&&d.kind!=="card"&&+d.payment>0){
+    if(!(st.rate>0)&&+d.lastPayment>0)st.termLeft=Math.max(1,Math.round((st.principal-+d.lastPayment)/+d.payment)+1);
+    else st.termLeft=Math.min(600,termFor(st.principal,st.rate,+d.payment,st.perYear));
+  }
   if(d.kind==="loan"&&st.payType==="diff")st.part=st.termLeft?st.principal/st.termLeft:st.principal;
   else if(d.kind!=="card")st.payment=+d.payment>0?+d.payment:annuity(st.principal,st.rate,st.termLeft,st.perYear);
   return st;
@@ -375,7 +382,8 @@ function cardInit(d){
     t:d.balanceDate,intP:0,intC:0,pendOld:0,graceOk:true,curG:0,curM:0,due:null,paid:0,
     resOut:0,resOutDate:null,depFor:null,overdue:false,tInt:0,tFees:0,tPaid:0,sim:false,history:[]};
   (d.plans||[]).forEach(p=>{
-    const months=Math.max(1,+p.months||1), amount=+p.amount||0;
+    const amount=+p.amount||0;
+    const months=+p.months>0?+p.months:(+p.monthly>0&&+p.lastPay>0?Math.max(1,Math.round((amount-+p.lastPay)/+p.monthly)+1):1);
     const monthly=+p.monthly>0?+p.monthly:Math.ceil(amount/months*100)/100;
     const first=p.first||nextDueAfter(p.date||d.balanceDate,sd);
     let billed=0;
@@ -488,17 +496,89 @@ function cardToday(d,payments,spends,today){
   s.plansRem=r2(s.plans.reduce((a,p)=>a+p.rem,0));
   return s;
 }
+/* ---------- Рассрочка с разными платежами по графику банка ---------- */
+function customToday(d,payments,today){
+  const rows=(d.schedule||[]).map(r=>({id:r.id,date:r.date,amount:+r.amount||0,fee:+r.fee||0}))
+    .filter(r=>r.date).sort((a,b)=>a.date.localeCompare(b.date));
+  const before=rows.filter(r=>r.date<d.balanceDate).length;
+  const pays=payments.filter(p=>p.date>=d.balanceDate&&p.date<=today);
+  const paid=Math.min(rows.length,before+pays.length);
+  const rest=rows.slice(paid);
+  return {id:d.id,name:d.name,kind:"installment",isCustom:true,rows:rest,allRows:rows,paidCount:paid,
+    rate:0,perYear:12,fees:0,carry:0,history:[],
+    principal:r2(rest.reduce((a,r)=>a+r.amount-r.fee,0)),feesLeft:r2(rest.reduce((a,r)=>a+r.fee,0)),
+    toPay:r2(rest.reduce((a,r)=>a+r.amount,0)),
+    nextDue:rest[0]?rest[0].date:null,nextAmount:rest[0]?rest[0].amount:0,termLeft:rest.length,
+    accruedNow:0,overdue:!!rest[0]&&rest[0].date<today,growing:false,
+    paidPrin:rows.slice(0,paid).reduce((a,r)=>a+r.amount,0),paidInt:0,lastRow:rows[rows.length-1]||null};
+}
+
+/* ---------- Кубышка: бесплатные дни, потом плата за каждый день по сумме долга ---------- */
+const KUB_TIERS="1000:0; 3000:9; 10000:19; 25000:39; 59";
+function parseTiers(str){
+  const out=[];
+  String(str||KUB_TIERS).split(/[;\n]+/).map(x=>x.trim()).filter(Boolean).forEach(p=>{
+    const m=p.replace(/\s/g,"").replace(",",".").split(":");
+    if(m.length===2)out.push({upTo:+m[0],fee:+m[1]});else out.push({upTo:Infinity,fee:+m[0]});
+  });
+  out.sort((a,b)=>a.upTo-b.upTo);
+  if(!out.length||out[out.length-1].upTo!==Infinity)out.push({upTo:Infinity,fee:out.length?out[out.length-1].fee:0});
+  return out;
+}
+function kubDayFee(s,bal){if(!(bal>0.005))return 0;for(const t of s.tiers)if(bal<=t.upTo)return t.fee||0;return 0}
+/* Плата за дни (from, to], кроме бесплатных. */
+function kubFees(s,from,to){
+  const start=from>s.freeEnd?from:s.freeEnd;
+  const n=days(start,to);
+  return n>0?n*kubDayFee(s,s.principal):0;
+}
+function kubAdvance(s,to){if(to>s.t){const f=kubFees(s,s.t,to);s.misc+=f;s.tFees+=f;s.t=to}}
+function kubPay(s,amt){
+  const x=Math.min(amt,s.misc);s.misc=r2(s.misc-x);amt-=x;
+  const y=Math.min(amt,s.principal);s.principal=r2(s.principal-y);s.paidPrin+=x+y;
+}
+function kubInit(d){
+  const taken=d.takenDate||d.balanceDate;
+  const s={id:d.id,name:d.name,kind:"kub",isKub:true,principal:+d.balance||0,taken,freeDays:+d.freeDays||7,
+    tiers:parseTiers(d.tiers),misc:0,t:taken,tFees:0,paidPrin:0,paidInt:0,history:[],perYear:12,fees:0,carry:0,termLeft:1,growing:false};
+  s.freeEnd=addDays(taken,s.freeDays);
+  return s;
+}
+function kubToday(d,payments,today){
+  const s=kubInit(d);
+  payments.filter(p=>p.date>=s.taken&&p.date<=today).sort((a,b)=>a.date.localeCompare(b.date))
+    .forEach(p=>{kubAdvance(s,p.date);kubPay(s,+p.amount)});
+  kubAdvance(s,today);
+  const plan=d.planDate&&d.planDate>=today?d.planDate:(s.freeEnd>=today?s.freeEnd:today);
+  s.planDate=plan;s.nextDue=plan;
+  s.nextAmount=r2(s.principal+s.misc+kubFees(s,s.t,plan));
+  s.accruedNow=r2(s.misc);
+  s.dayFee=kubDayFee(s,s.principal);
+  s.rate=s.principal>0?r2(s.dayFee*365/s.principal*100):0;
+  s.paying=today>s.freeEnd&&s.principal>0;
+  s.overdue=false;
+  return s;
+}
+
 function debtToday(d,payments,today,spends){
-  return d.kind==="card"?cardToday(d,payments,spends,today):loanToday(d,payments,today);
+  if(d.kind==="card")return cardToday(d,payments,spends,today);
+  if(d.kind==="kub")return kubToday(d,payments,today);
+  if(d.kind==="installment"&&d.payPlan==="custom")return customToday(d,payments,today);
+  return loanToday(d,payments,today);
 }
 
 /* Помесячная симуляция всех долгов. strategy: min | avalanche | snowball. extra — доплата в месяц. */
 function simulate(states,extra,strategy,startMk,horizon){
   horizon=horizon||600;
-  const ds=states.filter(s=>s.principal>0).map(s=>{if(!s.isCard)return clone(s);const c=cardClone(s);c.sim=true;return c});
-  const open=(s)=>s.isCard?cardTotal(s)>0.01:s.principal>0;
+  const open=(s)=>s.isCard?cardTotal(s)>0.01:s.isCustom?s.rows.length>0:s.isKub?s.principal+s.misc>0.005:s.principal>0;
+  const ds=states.filter(open).map(s=>{
+    if(s.isCard){const c=cardClone(s);c.sim=true;return c}
+    if(s.isCustom)return Object.assign({},s,{rows:s.rows.slice()});
+    return clone(s);
+  });
   const base={};
-  ds.forEach(s=>{base[s.id]=s.isCard?s.nextAmount:requiredAt(s,s.nextDue).pay*(s.perYear||12)/12});
+  /* Кубышка возвращается разом, поэтому после неё ежемесячно ничего не освобождается. */
+  ds.forEach(s=>{base[s.id]=s.isKub?0:s.isCard||s.isCustom?s.nextAmount:requiredAt(s,s.nextDue).pay*(s.perYear||12)/12});
   const months=[],payoff={};
   let interest=0,fees=0,freed=0;
   const useExtra=strategy!=="min";
@@ -517,6 +597,26 @@ function simulate(states,extra,strategy,startMk,horizon){
         const left=Math.max(0,s.curG-s.paid),req=s.payMode==="min"?Math.min(left,Math.max(0,s.curM-s.paid)):left;
         const e={s,D,req,extra:0,t0,f0,cap:Math.max(0,left-req)};
         cardDues.push(e);targets.push({rate:cardRate(s),bal:cardTotal(s),card:e});
+        return;
+      }
+      if(s.isCustom){
+        const due=s.rows.filter(r=>r.date<=mEnd);
+        if(!due.length)return;
+        const p=row.per[s.id]={pay:0,int:0,prin:0,due:due[0].date,dues:[]};
+        due.forEach(r=>{
+          s.rows.shift();const prin=r.amount-r.fee;s.principal=r2(s.principal-prin);
+          p.pay+=r.amount;p.prin+=prin;fees+=r.fee;row.fees+=r.fee;row.pay+=r.amount;
+          p.dues.push({date:r.date,pay:r.amount,int:0,prin,fee:r.fee,rest:s.principal});
+        });
+        return;
+      }
+      if(s.isKub){
+        if(s.planDate<=mEnd){
+          const f0=s.tFees;kubAdvance(s,s.planDate);
+          const P=r2(s.principal+s.misc);kubPay(s,P);
+          const dF=s.tFees-f0;fees+=dF;row.fees+=dF;row.pay+=P;
+          row.per[s.id]={pay:P,int:0,prin:P-dF,due:s.planDate,fee:dF};
+        }else targets.push({rate:s.rate,bal:s.principal,kub:s,mk});
         return;
       }
       const dues=schedIn(s,mk).filter(x=>x>=s.nextDue);
@@ -541,6 +641,14 @@ function simulate(states,extra,strategy,startMk,horizon){
       for(const t of targets){
         if(pool<=0.005)break;
         if(t.card){const amt=Math.min(pool,t.card.cap);t.card.extra+=amt;pool-=amt;continue}
+        if(t.kub){
+          const s=t.kub,dt=dueIn(t.mk,15)>s.t?dueIn(t.mk,15):s.t,f0=s.tFees;
+          kubAdvance(s,dt);const amt=Math.min(pool,s.principal+s.misc);kubPay(s,amt);
+          const dF=s.tFees-f0;fees+=dF;row.fees+=dF;row.pay+=amt;pool-=amt;
+          row.per[s.id]={pay:amt,int:0,prin:amt,due:dt,fee:dF};
+          if(s.principal>0){s.dayFee=kubDayFee(s,s.principal);s.rate=r2(s.dayFee*365/s.principal*100)}
+          continue;
+        }
         const s=t.loan,amt=Math.min(pool,s.principal+s.carry);
         const r=applyPayment(s,s.last,amt,"early","term");
         interest+=r.toInt;row.int+=r.toInt;
@@ -558,7 +666,7 @@ function simulate(states,extra,strategy,startMk,horizon){
     });
     ds.forEach(s=>{
       if(!open(s)&&!payoff[s.id]&&row.per[s.id]){payoff[s.id]=mk;if(useExtra)freed+=base[s.id]||0}
-      if(row.per[s.id])row.per[s.id].rest=s.isCard?cardTotal(s):s.principal;
+      if(row.per[s.id]&&!s.isCustom)row.per[s.id].rest=s.isCard?cardTotal(s):s.principal;
     });
     row.total=r2(ds.reduce((a,s)=>a+(s.isCard?cardTotal(s):s.principal),0));
     months.push(row);
@@ -585,7 +693,7 @@ function grow(balance,rate,cap,months,topUp){
 function effYield(rate,cap){return (grow(100,rate,cap,12,0).final-100)}
 
 root.Fin={DAY,r2,D,S,days,addDays,addMonths,mkOf,monthLen,dueIn,nextDueAfter,monthsBetween,accrue,annuity,termFor,
-  initState,interestTo,applyPayment,nextSched,schedIn,requiredAt,debtToday,simulate,grow,effYield,
+  initState,interestTo,applyPayment,nextSched,parseTiers,KUB_TIERS,schedIn,requiredAt,debtToday,simulate,grow,effYield,
   cardInit,cardRun,cardToday,cardTotal,cardClone,cardNextDue,lastStmtOnOrBefore};
 })(typeof window!=="undefined"?window:globalThis);
 
@@ -617,7 +725,7 @@ const CATS={
   out:["Продукты","Кафе","Транспорт","Жильё","Кредиты","Подписки","Связь","Здоровье","Развлечения","Одежда","Подарки","Другое"],
   in:["Зарплата","Подработка","Подарок","Проценты","Другое"]
 };
-const KIND={loan:"Кредит",installment:"Рассрочка",card:"Кредитка"};
+const KIND={loan:"Кредит",installment:"Рассрочка",card:"Кредитка",kub:"Кубышка"};
 const EVERY={w:"раз в неделю","2w":"раз в 2 недели"};
 const CAP={day:"ежедневно",month:"ежемесячно",quarter:"раз в квартал",end:"в конце срока"};
 const STRAT={min:"Только минимум",avalanche:"Лавина",snowball:"Снежный ком"};
@@ -638,6 +746,7 @@ const DEMO=(function(){
   return{
     debts:[
       {id:"ex-loan",kind:"loan",name:"Потребительский кредит",bank:"Банк",balance:500000,balanceDate:today,rate:20,termLeft:36,payDay:5,payType:"annuity",fees:0},
+      {id:"ex-kub",kind:"kub",name:"Кубышка",bank:"Т-Банк",balance:15000,takenDate:d(-3),balanceDate:d(-3),freeDays:7,tiers:F.KUB_TIERS},
       {id:"ex-inst",kind:"installment",name:"Рассрочка за ноутбук",bank:"Магазин",balance:60000,balanceDate:today,rate:0,termLeft:6,payDay:15,fees:0},
       {id:"ex-card",kind:"card",name:"Кредитная карта",bank:"Банк",balanceDate:today,statementDay:12,dueDays:25,ratePurchase:29.9,rateCash:49.9,minPct:8,minFixed:600,limit:150000,purchBal:18500,cashBal:0,balance:18500,payMode:"grace",lastStmtPaid:true,reserve:0,fees:0,
         plans:[{id:"ex-p1",name:"Смартфон в рассрочку",amount:40720.23,months:18,monthly:2263,fee:1181,feeMonthly:true,first:F.dueIn(F.addMonths(curMk,-3),12)}]}
@@ -963,11 +1072,13 @@ function vDebts(){
       else if(s.due&&s.nextG>0)flags.push(`<span class="pill warn">Выписка, внести до ${dLabel(s.due)}</span>`);
     }else if(s.overdue)flags.push('<span class="pill bad">Платёж не отмечен</span>');
     if(s.growing)flags.push('<span class="pill bad">Платёж меньше процентов</span>');
+    if(s.isKub&&s.paying)flags.push('<span class="pill bad">Идёт плата</span>');
+    if(s.isCustom&&!s.allRows.length)flags.push('<span class="pill warn">Заполните график</span>');
     return `<button class="debt" data-act="debt" data-id="${esc(s.id)}">
       <div class="debt-top"><div><span class="pill ${s.kind}">${KIND[s.kind]}</span> ${flags.join(" ")}<div class="n" style="margin-top:6px">${esc(s.name)}</div><div class="small muted">${esc(d.bank||"")}</div></div>
-      <div style="text-align:right"><div class="debt-sum">${m0(s.principal)}</div><div class="small muted">${s.isCard?pct(s.rP)+" / "+pct(s.rC):pct(s.rate)+" годовых"}${s.step?"<br>"+EVERY[s.every]:""}</div></div></div>
+      <div style="text-align:right"><div class="debt-sum">${m0(s.principal)}</div><div class="small muted">${s.isCard?pct(s.rP)+" / "+pct(s.rC):s.isKub?(s.paying?"платно: "+m0(s.dayFee)+" в день":"бесплатно до "+dLabel(s.freeEnd)):s.isCustom?"по графику банка":pct(s.rate)+" годовых"}${s.step?"<br>"+EVERY[s.every]:""}</div></div></div>
       ${s.kind==="card"&&+d.limit>0?`<div class="bar"><i class="${s.principal/d.limit>.9?"over":s.principal/d.limit>.6?"warn":""}" style="width:${Math.min(100,s.principal/d.limit*100)}%"></i></div><div class="meta"><span>Использовано ${Math.round(s.principal/d.limit*100)}% лимита</span><span>Доступно ${m0(Math.max(0,d.limit-s.principal))}</span></div>`:""}
-      <div class="kv"><div><span>${s.isCard?(s.payMode==="min"?"Минимальный":"Для льготы"):"Платёж"}</span><b>${s.principal>0?money(s.nextAmount):"—"}</b></div><div><span>Когда</span><b>${s.principal>0?dLabel(s.nextDue):"—"}</b></div><div><span>Закрою</span><b>${payoff?esc(mkLabel(payoff)):s.principal>0?"не видно":"—"}</b></div></div>
+      <div class="kv"><div><span>${s.isCard?(s.payMode==="min"?"Минимальный":"Для льготы"):s.isKub?"Вернуть":"Платёж"}</span><b>${s.principal>0?money(s.nextAmount):"—"}</b></div><div><span>Когда</span><b>${s.principal>0?dLabel(s.nextDue):"—"}</b></div><div><span>Закрою</span><b>${payoff?esc(mkLabel(payoff)):s.principal>0?"не видно":"—"}</b></div></div>
     </button>`;
   }).join("");
   return `
@@ -1094,6 +1205,7 @@ function fieldHTML(f,v){
   const hint=f.hint?`<span class="hint">${f.hint}</span>`:"";
   const val=v==null?"":v;
   switch(f.type){
+    case "note":return `<p class="note" style="margin:0">${f.label}</p>`;
     case "big":return `<label class="amount"><input class="big" id="${id}" data-k="${f.k}" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="${esc(f.label)}" value="${esc(String(val).replace(".",","))}"><span>₽</span></label>`;
     case "seg":return `<div class="${cls}">${f.label?`<span class="label">${esc(f.label)}</span>`:""}<div class="seg" role="group">${f.opts.map(([k,l])=>`<button type="button" data-seg="${f.k}" data-v="${k}" aria-pressed="${String(v)===String(k)}">${esc(l)}</button>`).join("")}</div>${hint}</div>`;
     case "chips":return `<div class="${cls}"><span class="label">${esc(f.label)}</span><div class="chips">${f.opts.map(([k,l])=>`<button type="button" data-seg="${f.k}" data-v="${esc(k)}" aria-pressed="${v===k}">${esc(l)}</button>`).join("")}</div></div>`;
@@ -1155,7 +1267,7 @@ function txForm(t,preset){
       {k:"instMonthly",type:"money",label:"Платёж в месяц, ₽",half:true,show:isInst,hint:"Пусто — сумма / срок"},
       {k:"instFee",type:"money",label:"Комиссия в месяц, ₽",show:isInst},
       {k:"debtId",type:"select",label:"Какой долг",show:x=>x.type==="out"&&x.cat==="Кредиты"&&debts.length>0,opts:debts.map(d=>[d.id,d.name])},
-      {k:"payKind",type:"seg",label:"Тип платежа",show:x=>x.type==="out"&&x.cat==="Кредиты"&&debts.length>0&&kindOf(x.debtId)!=="card",opts:[["regular","По графику"],["early","Досрочно"]]},
+      {k:"payKind",type:"seg",label:"Тип платежа",show:x=>x.type==="out"&&x.cat==="Кредиты"&&debts.length>0&&plainLoan(x.debtId),opts:[["regular","По графику"],["early","Досрочно"]]},
       {k:"earlyMode",type:"seg",label:"Что уменьшить",show:x=>x.type==="out"&&x.cat==="Кредиты"&&x.payKind==="early"&&kindOf(x.debtId)!=="card",opts:[["term","Срок"],["payment","Платёж"]],hint:"Сокращение срока обычно экономит больше процентов."},
       {k:"date",type:"date",label:"Дата",half:true},
       {k:"note",type:"text",label:"Заметка",ph:"Необязательно",half:true,max:80}
@@ -1167,7 +1279,7 @@ function txForm(t,preset){
       if(!CATS[x.type].includes(x.cat))x.cat=CATS[x.type][0];
       const isDebt=x.type==="out"&&x.cat==="Кредиты"&&x.debtId&&debts.length;
       const o={id:t?t.id:uid(),type:x.type,amount:F.r2(num(x.amount)),cat:x.cat,note:(x.note||"").trim(),date:x.date||today,created:t&&t.created||Date.now()};
-      if(isDebt){o.debtId=x.debtId;o.payKind=kindOf(x.debtId)==="card"?"regular":(x.payKind||"regular");if(o.payKind==="early")o.earlyMode=x.earlyMode||"term"}
+      if(isDebt){o.debtId=x.debtId;o.payKind=plainLoan(x.debtId)?(x.payKind||"regular"):"regular";if(o.payKind==="early")o.earlyMode=x.earlyMode||"term"}
       const card=onCard(x)?cards.find(c=>c.id===x.src):null;
       let plan=null;
       if(card){
@@ -1187,6 +1299,7 @@ function txForm(t,preset){
   });
 }
 const kindOf=(id)=>{const d=data.debts.find(x=>x.id===id);return d?d.kind:""};
+const plainLoan=(id)=>{const d=data.debts.find(x=>x.id===id);return !!d&&(d.kind==="loan"||(d.kind==="installment"&&d.payPlan!=="custom"))};
 
 function debtForm(d){
   const v=d?{...d}:{kind:"loan",name:"",bank:"",balance:"",balanceDate:today,rate:"",payDay:"",fees:"",payType:"annuity",termLeft:"",payment:""};
@@ -1194,16 +1307,21 @@ function debtForm(d){
   if(v.dueDays==null)v.dueDays="25"; if(v.minPct==null||v.minPct==="")v.minPct="8"; if(v.minFixed==null||v.minFixed==="")v.minFixed="600";
   if(v.lastStmtPaid==null)v.lastStmtPaid=true; if(!v.payMode)v.payMode="grace";
   if(!v.payEvery)v.payEvery="month"; if(v.firstPay==null)v.firstPay="";
+  if(!v.payPlan)v.payPlan="fixed"; if(v.lastPayment==null)v.lastPayment="";
+  if(!v.freeDays)v.freeDays="7"; if(v.tiers==null)v.tiers=F.KUB_TIERS; if(!v.takenDate)v.takenDate=today; if(v.planDate==null)v.planDate="";
+  const isCustom=x=>x.kind==="installment"&&x.payPlan==="custom", fixed=x=>(x.kind==="loan"||x.kind==="installment")&&!isCustom(x);
   const k=(...ks)=>x=>ks.includes(x.kind), nc=x=>x.kind!=="card";
   openForm({
     title:d?"Изменить долг":"Новый долг",values:v,noFocus:true,
     fields:[
-      {k:"kind",type:"seg",opts:[["loan","Кредит"],["installment","Рассрочка"],["card","Кредитка"]]},
+      {k:"kind",type:"seg",opts:[["loan","Кредит"],["installment","Рассрочка"],["card","Кредитка"],["kub","Кубышка"]]},
+      {k:"payPlan",type:"seg",label:"Платежи",show:k("installment"),opts:[["fixed","Одинаковые"],["custom","Разные, по графику"]]},
+      {k:"_custom",type:"note",label:"График платежей с комиссией вы заполните после сохранения: откройте рассрочку и нажмите «Заполнить график».",show:isCustom},
       {k:"name",type:"text",label:"Название",ph:"Например, ипотека",max:60},
       {k:"bank",type:"text",label:"Банк или магазин",ph:"Необязательно",half:true,max:40},
-      {k:"payEvery",type:"seg",label:"Как часто платёж",show:k("installment"),opts:[["month","Раз в месяц"],["2w","Раз в 2 недели"],["w","Раз в неделю"]]},
-      {k:"payDay",type:"int",label:"День платежа",ph:"1–31",half:true,show:x=>nc(x)&&!(x.kind==="installment"&&x.payEvery&&x.payEvery!=="month")},
-      {k:"firstPay",type:"date",label:"Ближайший платёж",half:true,show:x=>x.kind==="installment"&&x.payEvery&&x.payEvery!=="month",hint:"Дальше каждые 7 или 14 дней"},
+      {k:"payEvery",type:"seg",label:"Как часто платёж",show:x=>x.kind==="installment"&&!isCustom(x),opts:[["month","Раз в месяц"],["2w","Раз в 2 недели"],["w","Раз в неделю"]]},
+      {k:"payDay",type:"int",label:"День платежа",ph:"1–31",half:true,show:x=>fixed(x)&&!(x.kind==="installment"&&x.payEvery&&x.payEvery!=="month")},
+      {k:"firstPay",type:"date",label:"Ближайший платёж",half:true,show:x=>x.kind==="installment"&&!isCustom(x)&&x.payEvery&&x.payEvery!=="month",hint:"Дальше каждые 7 или 14 дней"},
       {k:"limit",type:"money",label:"Кредитный лимит, ₽",half:true,show:k("card")},
       {k:"statementDay",type:"int",label:"День выписки",ph:"1–31",half:true,show:k("card")},
       {k:"dueDays",type:"int",label:"Дней на оплату после выписки",half:true,show:k("card"),hint:"Льгота 55 дней: обычно 30 дней периода + 25 на оплату"},
@@ -1212,20 +1330,26 @@ function debtForm(d){
       {k:"minPct",type:"num",label:"Мин. платёж, % долга",half:true,show:k("card")},
       {k:"minFixed",type:"money",label:"Мин. платёж не меньше, ₽",half:true,show:k("card")},
       {k:"payMode",type:"seg",label:"Как вы платите по выписке",show:k("card"),opts:[["grace","Всю сумму для льготы"],["min","Минимальный"]],hint:"От этого зависит прогноз и проценты"},
-      {k:"balance",type:"money",label:"Остаток долга, ₽",half:true,show:nc,hint:"Сколько осталось вернуть без процентов"},
+      {k:"balance",type:"money",label:"Остаток долга, ₽",half:true,show:fixed,hint:"Сколько осталось вернуть без процентов"},
+      {k:"balance",type:"money",label:"Долг по Кубышке, ₽",half:true,show:k("kub")},
+      {k:"takenDate",type:"date",label:"Когда взяли",half:true,show:k("kub")},
+      {k:"freeDays",type:"seg",label:"Без платы",show:k("kub"),opts:[["7","7 дней"],["14","14 дней"]],hint:"14 дней — для зарплатных клиентов и с подпиской Pro или Premium"},
+      {k:"planDate",type:"date",label:"Планирую вернуть",show:k("kub"),hint:"Пусто — в последний бесплатный день"},
+      {k:"tiers",type:"text",label:"Плата в день по сумме долга",show:k("kub"),hint:"«до суммы: ₽ в день», последнее число — для долга больше. Сейчас стоят тарифы Т-Банка, сверьте их с приложением банка"},
       {k:"purchBal",type:"money",label:"Долг по покупкам, ₽",half:true,show:k("card"),hint:"Без рассрочек"},
       {k:"cashBal",type:"money",label:"Долг по снятиям и переводам, ₽",half:true,show:k("card")},
-      {k:"balanceDate",type:"date",label:"Остаток на дату",half:true},
+      {k:"balanceDate",type:"date",label:x=>isCustom(x)?"Платежи до этой даты уже внесены":"Остаток на дату",half:true,show:x=>x.kind!=="kub"},
       {k:"lastStmtPaid",type:"check",label:"Последняя выписка оплачена полностью",show:k("card"),hint:"Снимите галочку, если платёж по последней выписке ещё не внесён"},
       {k:"rate",type:"num",label:"Ставка, % годовых",half:true,show:k("loan")},
-      {k:"rate",type:"num",label:"Ставка, %",half:true,show:k("installment"),hint:"Обычно 0"},
+      {k:"rate",type:"num",label:"Ставка, %",half:true,show:x=>x.kind==="installment"&&!isCustom(x),hint:"Обычно 0"},
       {k:"payType",type:"seg",label:"Тип платежей",show:k("loan"),opts:[["annuity","Равные (аннуитет)"],["diff","Убывающие"]]},
-      {k:"termLeft",type:"int",label:"Осталось платежей",half:true,show:k("loan","installment")},
-      {k:"payment",type:"money",label:"Платёж, ₽",half:true,show:x=>x.kind==="installment"||(x.kind==="loan"&&x.payType!=="diff"),hint:"Из графика банка. Пусто — рассчитаем"},
+      {k:"termLeft",type:"int",label:"Осталось платежей",half:true,show:fixed,hint:"Можно не заполнять, если указан платёж"},
+      {k:"payment",type:"money",label:"Платёж, ₽",half:true,show:x=>(x.kind==="installment"&&!isCustom(x))||(x.kind==="loan"&&x.payType!=="diff"),hint:"Из графика банка. Пусто — рассчитаем"},
+      {k:"lastPayment",type:"money",label:"Последний платёж, ₽",half:true,show:x=>(x.kind==="installment"&&!isCustom(x))||(x.kind==="loan"&&x.payType!=="diff"),hint:"Необязательно. Обычно чуть меньше остальных"},
       {k:"reserve",type:"money",label:"Резерв, который гоняете в день выписки, ₽",show:k("card"),hint:"Необязательно. Приложение посчитает, во что он обходится"},
       {k:"reserveFeePct",type:"num",label:"Комиссия за вывод, %",half:true,show:x=>x.kind==="card"&&num(x.reserve)>0},
       {k:"reserveFeeMin",type:"money",label:"Комиссия не меньше, ₽",half:true,show:x=>x.kind==="card"&&num(x.reserve)>0},
-      {k:"fees",type:"money",label:x=>x.kind==="card"?"Обслуживание карты в месяц, ₽":"Страховка и комиссии в месяц, ₽",hint:"Необязательно. Учитываются в переплате"}
+      {k:"fees",type:"money",label:x=>x.kind==="card"?"Обслуживание карты в месяц, ₽":"Страховка и комиссии в месяц, ₽",hint:"Необязательно. Учитываются в переплате",show:x=>x.kind!=="kub"&&!isCustom(x)}
     ],
     onDelete:d?async()=>store.remove("debts",d.id):null,deleteLabel:"Удалить долг",
     async onSave(x){
@@ -1241,19 +1365,31 @@ function debtForm(d){
           reserve:num(x.reserve),reserveFeePct:num(x.reserveFeePct),reserveFeeMin:num(x.reserveFeeMin),plans:d&&d.plans||[]});
         if(!(o.minPct>0)&&!(o.minFixed>0))return "Укажите минимальный платёж: процент от долга или сумму.";
         if(!(o.ratePurchase>=0&&o.ratePurchase<=200&&o.rateCash>=0&&o.rateCash<=200))return "Проверьте ставки.";
+      }else if(x.kind==="kub"){
+        const e=need(x.balance,"Введите долг по Кубышке.");if(e)return e;
+        if(!x.takenDate)return "Укажите, когда взяли деньги.";
+        const tiers=String(x.tiers||"").trim()||F.KUB_TIERS;
+        if(F.parseTiers(tiers).some(t=>!isFinite(t.fee)||isNaN(t.upTo)))return "Проверьте тарифы: например «1000:0; 3000:9; 59».";
+        Object.assign(o,{balance:F.r2(num(x.balance)),takenDate:x.takenDate,balanceDate:x.takenDate,payDay:+x.takenDate.slice(8),freeDays:+x.freeDays||7,planDate:x.planDate||"",tiers});
+      }else if(isCustom(x)){
+        Object.assign(o,{payPlan:"custom",schedule:d&&d.schedule||[],balance:0,payDay:1});
       }else{
         const e=need(x.balance,"Введите остаток долга.");if(e)return e;
         const weekly=x.kind==="installment"&&(x.payEvery==="w"||x.payEvery==="2w");
         let pd=parseInt(x.payDay,10);
         if(weekly){if(!x.firstPay)return "Укажите дату ближайшего платежа.";pd=+x.firstPay.slice(8)}
         else if(!(pd>=1&&pd<=31))return "Укажите день платежа от 1 до 31.";
-        const n=parseInt(x.termLeft,10);if(!(n>=1&&n<=600))return "Укажите, сколько платежей осталось.";
-        Object.assign(o,{balance:F.r2(num(x.balance)),rate:num(x.rate),payDay:pd,termLeft:n,payType:x.kind==="loan"?x.payType:"annuity"});
+        const n=parseInt(x.termLeft,10),hasPay=num(x.payment)>0;
+        if(!(n>=1&&n<=600)&&!hasPay)return "Укажите, сколько платежей осталось, или размер платежа.";
+        Object.assign(o,{balance:F.r2(num(x.balance)),rate:num(x.rate),payDay:pd,payType:x.kind==="loan"?x.payType:"annuity"});
+        if(n>=1&&n<=600)o.termLeft=n;
+        if(num(x.lastPayment)>0)o.lastPayment=F.r2(num(x.lastPayment));
         if(weekly){o.payEvery=x.payEvery;o.firstPay=x.firstPay}
         const p=num(x.payment);if(p>0)o.payment=F.r2(p);
         if(o.rate<0||o.rate>200)return "Проверьте ставку.";
       }
       await store.put("debts",o);
+      if(!d&&o.payPlan==="custom")setTimeout(()=>{debtView(o.id);fillForm(o.id)},60);
     }
   });
 }
@@ -1264,8 +1400,9 @@ function planForm(cardId,p){
     fields:[
       {k:"name",type:"text",label:"Название",ph:"Например, телефон",max:60},
       {k:"amount",type:"money",label:"Сумма рассрочки, ₽",half:true},
-      {k:"months",type:"int",label:"Срок, месяцев",half:true},
+      {k:"months",type:"int",label:"Срок, месяцев",half:true,hint:"Можно не заполнять, если указаны платёж и последний платёж"},
       {k:"monthly",type:"money",label:"Платёж в месяц, ₽",half:true,hint:"Пусто — сумма / срок"},
+      {k:"lastPay",type:"money",label:"Последний платёж, ₽",half:true,hint:"Необязательно"},
       {k:"fee",type:"money",label:"Комиссия, ₽",half:true},
       {k:"feeMonthly",type:"check",label:"Комиссия списывается каждый месяц",hint:"Снимите галочку, если она разовая"},
       {k:"first",type:"date",label:"Первый платёж попал в выписку от",hint:"Сколько платежей уже прошло, приложение посчитает само"}
@@ -1274,9 +1411,10 @@ function planForm(cardId,p){
     async onSave(x){
       if(!x.name||!x.name.trim())return "Введите название.";
       const e=need(x.amount,"Введите сумму рассрочки.");if(e)return e;
-      const n=parseInt(x.months,10);if(!(n>=1&&n<=120))return "Укажите срок в месяцах.";
+      let n=parseInt(x.months,10);
+      if(!(n>=1&&n<=120)){if(num(x.monthly)>0&&num(x.lastPay)>0)n=Math.max(1,Math.round((num(x.amount)-num(x.lastPay))/num(x.monthly))+1);else return "Укажите срок в месяцах.";}
       if(!x.first)return "Укажите дату выписки с первым платежом.";
-      const o={id:p?p.id:uid(),name:x.name.trim(),amount:F.r2(num(x.amount)),months:n,monthly:num(x.monthly)>0?F.r2(num(x.monthly)):0,fee:num(x.fee),feeMonthly:!!x.feeMonthly,first:x.first,date:p&&p.date||x.first};
+      const o={id:p?p.id:uid(),name:x.name.trim(),amount:F.r2(num(x.amount)),months:n,monthly:num(x.monthly)>0?F.r2(num(x.monthly)):0,fee:num(x.fee),feeMonthly:!!x.feeMonthly,first:x.first,date:p&&p.date||x.first,lastPay:num(x.lastPay)>0?F.r2(num(x.lastPay)):0};
       await store.put("debts",{...d,plans:(d.plans||[]).filter(q=>q.id!==o.id).concat(o)});
     }});
 }
@@ -1359,6 +1497,8 @@ function budgetForm(){
 function debtView(id){
   const s=C.states.find(x=>x.id===id), d=view("debts").find(x=>x.id===id);if(!s)return;
   if(s.isCard)return cardView(s,d);
+  if(s.isKub)return kubView(s,d);
+  if(s.isCustom)return customView(s,d);
   const demo=id.startsWith("ex-");
   const rows=C.sim.months.filter(r=>r.per[id]).slice(0,24);
   const alone=F.simulate([s],0,"min",curMk);
@@ -1370,6 +1510,8 @@ function debtView(id){
       :`<div class="alert bad">Льготный период закончился ${dLabel(s.graceEnd,{day:"numeric",month:"long"})}. Проценты начисляются каждый день: примерно ${money(s.principal*s.rate/100/365)} в день.</div>`;
   }
   const hist=data.tx.filter(t=>t.debtId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  const lastP=(()=>{const m=alone.months.filter(r=>r.per[id]);if(!m.length)return null;const p=m[m.length-1].per[id];const x=p.dues?p.dues[p.dues.length-1]:p;return {pay:x.pay-(p.dues?0:s.fees),date:x.date||x.due}})();
+  const lastWarn=lastP&&+d.lastPayment>0&&Math.abs(lastP.pay-d.lastPayment)>1?`<div class="alert">В банке последний платёж ${money(d.lastPayment)}, а по расчёту выходит ${money(lastP.pay)}. Если разница большая, проверьте остаток долга и число платежей.</div>`:"";
   openView(s.name,`
     <div class="facts">
       <div><span>Остаток долга</span><b>${money(s.principal)}</b></div>
@@ -1378,10 +1520,11 @@ function debtView(id){
       <div><span>Следующий платёж</span><b>${s.principal>0?money(s.nextAmount)+", "+dLabel(s.nextDue):"—"}</b></div>
       ${s.kind!=="card"?`<div><span>Осталось платежей</span><b>${isFinite(s.termLeft)?s.termLeft:"∞"}${s.step?", "+EVERY[s.every]:""}</b></div>`:`<div><span>Мин. платёж</span><b>${pct(s.minPct)}${s.minFixed?", от "+m0(s.minFixed):""}</b></div>`}
       <div><span>Закрою по плану</span><b>${payoff?esc(mkLabel(payoff,true)):"—"}</b></div>
+      <div><span>Последний платёж</span><b>${lastP?money(lastP.pay)+", "+dLabel(lastP.date,{day:"numeric",month:"short",year:"numeric"}):"—"}</b></div>
       <div><span>Переплата без доплат</span><b>${alone.stuck?"не закрыть":m0(alone.interest+alone.fees)}</b></div>
       <div><span>Уже выплачено</span><b>${m0(s.paidPrin+s.paidInt)}</b></div>
     </div>
-    ${grace}
+    ${grace}${lastWarn}
     ${s.growing?`<div class="alert bad">Платёж меньше начисляемых процентов, долг не уменьшается. Проверьте условия или внесите досрочно.</div>`:""}
     ${demo?`<div class="demo">Это пример. Добавьте свой долг кнопкой «+ Долг».</div>`:`<div class="btns"><button class="primary" data-act="payDebt" data-id="${esc(id)}">Записать платёж</button><button class="ghost" data-act="earlyDebt" data-id="${esc(id)}">Внести досрочно</button></div>
     <button class="ghost" data-act="editDebt" data-id="${esc(id)}">Изменить условия или остаток</button>`}
@@ -1392,6 +1535,108 @@ function debtView(id){
     ${rows.length>=24||s.step&&s.termLeft>24?`<p class="note" style="margin:0">Показаны первые 24 платежа.</p>`:""}
     ${hist.length?`<h3 style="font-size:14px">Внесённые платежи</h3><div class="list">${hist.map(t=>`<div class="item"><span class="ic dbt">₽</span><span class="t"><span>${t.payKind==="early"?"Досрочно, "+(t.earlyMode==="payment"?"меньше платёж":"меньше срок"):"По графику"}</span><span>${dLabel(t.date,{day:"numeric",month:"long",year:"numeric"})}</span></span><span class="a">${money(t.amount)}</span></div>`).join("")}</div>`:""}
   `);
+}
+function kubView(s,d){
+  const id=s.id, demo=id.startsWith("ex-"), L={day:"numeric",month:"long"};
+  const tiers=F.parseTiers(d.tiers);
+  const alerts=[];
+  if(s.principal>0){
+    if(!s.paying)alerts.push(`<div class="alert">Верните <b>${money(s.principal)}</b> до <b>${dLabel(s.freeEnd,L)}</b> включительно, и это будет бесплатно. Потом за каждый день ${money(kubFee(tiers,s.principal))} при текущем долге.</div>`);
+    else alerts.push(`<div class="alert bad">Бесплатные дни закончились ${dLabel(s.freeEnd,L)}. Сейчас ${money(s.dayFee)} в день, это около ${pct(s.rate)} годовых. Уже набежало ${money(s.accruedNow)}.</div>`);
+    if(d.planDate&&s.planDate>s.freeEnd)alerts.push(`<p class="note" style="margin:0">Если вернуть ${dLabel(s.planDate,L)}, нужно будет ${money(s.nextAmount)}, из них плата за дни ${money(s.nextAmount-s.principal)}.</p>`);
+    alerts.push(`<p class="note" style="margin:0">В приложении банка пополнить карту мало: чтобы закрыть долг, в Кубышке нужно нажать «Вернуть».</p>`);
+  }
+  const hist=data.tx.filter(t=>t.debtId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  openView(s.name,`
+    <div class="facts">
+      <div><span>Долг</span><b>${money(s.principal)}</b></div>
+      <div><span>Бесплатно до</span><b>${dLabel(s.freeEnd,L)}</b></div>
+      <div><span>Плата сейчас</span><b class="${s.paying?"neg":""}">${s.paying?money(s.dayFee)+" в день":"нет"}</b></div>
+      <div><span>Набежало платы</span><b class="neg">${money(s.accruedNow)}</b></div>
+      <div><span>Вернуть по плану</span><b>${s.principal>0?money(s.nextAmount)+", "+dLabel(s.planDate):"—"}</b></div>
+      <div><span>Уже вернули</span><b>${m0(s.paidPrin)}</b></div>
+    </div>
+    ${alerts.join("")}
+    ${demo?`<div class="demo">Это пример. Добавьте свою Кубышку кнопкой «+ Долг».</div>`:`<div class="btns"><button class="primary" data-act="payDebt" data-id="${esc(id)}">Записать возврат</button><button class="ghost" data-act="editDebt" data-id="${esc(id)}">Изменить</button></div>`}
+    <h3 style="font-size:14px">Плата после бесплатных дней</h3>
+    <div class="list">${tiers.map((t,i)=>`<div class="meta"><span>${t.upTo===Infinity?"больше "+m0(tiers[i-1]?tiers[i-1].upTo:0):(i?m0(tiers[i-1].upTo)+" – ":"до ")+m0(t.upTo)}</span><b>${t.fee?m0(t.fee)+" в день":"бесплатно"}</b></div>`).join("")}</div>
+    ${hist.length?`<h3 style="font-size:14px">Возвраты</h3><div class="list">${hist.map(t=>`<div class="item"><span class="ic in">+</span><span class="t"><span>Возврат</span><span>${dLabel(t.date,{day:"numeric",month:"long",year:"numeric"})}</span></span><span class="a">${money(t.amount)}</span></div>`).join("")}</div>`:""}
+  `);
+}
+function kubFee(tiers,bal){for(const t of tiers)if(bal<=t.upTo)return t.fee||0;return 0}
+function customView(s,d){
+  const id=s.id, demo=id.startsWith("ex-"), L={day:"numeric",month:"short",year:"2-digit"};
+  const rows=s.allRows;
+  const payoff=C.sim.payoff[id];
+  openView(s.name,`
+    <div class="facts">
+      <div><span>Осталось заплатить</span><b>${money(s.toPay)}</b></div>
+      <div><span>Из них комиссия</span><b class="neg">${money(s.feesLeft)}</b></div>
+      <div><span>Следующий платёж</span><b>${s.nextDue?money(s.nextAmount)+", "+dLabel(s.nextDue):"—"}</b></div>
+      <div><span>Последний платёж</span><b>${s.lastRow?money(s.lastRow.amount)+", "+dLabel(s.lastRow.date,L):"—"}</b></div>
+      <div><span>Осталось платежей</span><b>${s.termLeft}</b></div>
+      <div><span>Закрою</span><b>${payoff?esc(mkLabel(payoff,true)):"—"}</b></div>
+      <div><span>Всего комиссия</span><b>${m0(rows.reduce((a,r)=>a+r.fee,0))}</b></div>
+      <div><span>Уже выплачено</span><b>${m0(s.paidPrin)}</b></div>
+    </div>
+    ${s.overdue?`<div class="alert bad">Платёж от ${dLabel(s.nextDue,{day:"numeric",month:"long"})} не отмечен. Если вы его внесли, нажмите «Записать платёж».</div>`:""}
+    ${!rows.length?`<div class="alert">График пока пустой. Нажмите «Заполнить график» и перепишите платежи из приложения банка: дату, сумму и комиссию.</div>`:""}
+    ${demo?"":`<div class="btns"><button class="primary" data-act="payDebt" data-id="${esc(id)}">Записать платёж</button><button class="ghost" data-act="editDebt" data-id="${esc(id)}">Изменить</button></div>
+    <div class="btns"><button class="ghost" data-act="fillSched" data-id="${esc(id)}">Заполнить график</button><button class="ghost" data-act="addRow" data-id="${esc(id)}">Добавить платёж</button></div>`}
+    ${rows.length?`<h3 style="font-size:14px">График платежей</h3>
+    <p class="note" style="margin:0">Нажмите на строку, чтобы поправить сумму или комиссию.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Дата</th><th>Платёж</th><th>Комиссия</th><th>В долг</th><th></th></tr></thead><tbody>
+    ${rows.map((r,i)=>`<tr class="click" data-act="row" data-debt="${esc(id)}" data-id="${esc(r.id)}"><td>${dLabel(r.date,L)}</td><td>${money(r.amount)}</td><td class="neg">${money(r.fee)}</td><td>${money(r.amount-r.fee)}</td><td>${i<s.paidCount?'<span class="pos">✓</span>':""}</td></tr>`).join("")}
+    </tbody></table></div>`:""}
+  `);
+}
+function rowForm(debtId,r){
+  const d=data.debts.find(x=>x.id===debtId);if(!d)return;
+  const sch=d.schedule||[];
+  const last=sch.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const v=r?{...r}:{date:last?F.dueIn(F.addMonths(last.date.slice(0,7),1),+last.date.slice(8)):today,amount:last?last.amount:"",fee:last?last.fee:""};
+  openForm({title:r?"Платёж по графику":"Новый платёж в графике",values:v,noFocus:true,
+    fields:[
+      {k:"date",type:"date",label:"Дата платежа"},
+      {k:"amount",type:"money",label:"Платёж, ₽",half:true,hint:"Сколько спишут всего"},
+      {k:"fee",type:"money",label:"Из него комиссия, ₽",half:true,hint:"0, если комиссии нет"}
+    ],
+    onDelete:r?async()=>{await store.put("debts",{...d,schedule:sch.filter(x=>x.id!==r.id)});debtView(debtId)}:null,deleteLabel:"Удалить платёж",
+    async onSave(x){
+      if(!x.date)return "Укажите дату.";
+      const e=need(x.amount,"Введите сумму платежа.");if(e)return e;
+      const fee=num(x.fee);if(fee<0||fee>num(x.amount))return "Комиссия не может быть больше платежа.";
+      const o={id:r?r.id:uid(),date:x.date,amount:F.r2(num(x.amount)),fee:F.r2(fee)};
+      await store.put("debts",{...d,schedule:sch.filter(q=>q.id!==o.id).concat(o)});
+      setTimeout(()=>debtView(debtId),60);
+    }});
+}
+function fillForm(debtId){
+  const d=data.debts.find(x=>x.id===debtId);if(!d)return;
+  const has=(d.schedule||[]).length>0;
+  openForm({title:"Заполнить график",values:{first:today,count:"",amount:"",fee:"",every:"month",replace:!has},noFocus:true,saveLabel:"Добавить платежи",
+    fields:[
+      {k:"_n",type:"note",label:"Добавлю одинаковые строки, а потом поправьте суммы тех месяцев, где платёж другой: нажмите на строку в графике."},
+      {k:"first",type:"date",label:"Первый платёж",half:true},
+      {k:"count",type:"int",label:"Сколько платежей",half:true},
+      {k:"amount",type:"money",label:"Платёж, ₽",half:true},
+      {k:"fee",type:"money",label:"Из него комиссия, ₽",half:true},
+      {k:"every",type:"seg",label:"Как часто",opts:[["month","Раз в месяц"],["2w","Раз в 2 недели"],["w","Раз в неделю"]]},
+      {k:"replace",type:"check",label:"Заменить текущий график",show:()=>has}
+    ],
+    async onSave(x){
+      if(!x.first)return "Укажите дату первого платежа.";
+      const n=parseInt(x.count,10);if(!(n>=1&&n<=120))return "Укажите число платежей от 1 до 120.";
+      const e=need(x.amount,"Введите сумму платежа.");if(e)return e;
+      const fee=num(x.fee);if(fee<0||fee>num(x.amount))return "Комиссия не может быть больше платежа.";
+      const rows=[];
+      for(let i=0;i<n;i++){
+        const date=x.every==="month"?F.dueIn(F.addMonths(x.first.slice(0,7),i),+x.first.slice(8)):F.addDays(x.first,i*(x.every==="w"?7:14));
+        rows.push({id:uid()+i,date,amount:F.r2(num(x.amount)),fee:F.r2(fee)});
+      }
+      await store.put("debts",{...d,schedule:(x.replace||!has?[]:d.schedule||[]).concat(rows)});
+      setTimeout(()=>debtView(debtId),60);
+    }});
 }
 function cardView(s,d){
   const id=s.id, demo=id.startsWith("ex-"), L={day:"numeric",month:"long"};
@@ -1417,7 +1662,7 @@ function cardView(s,d){
     <div><span>Стоит в месяц</span><b class="neg">≈ ${m0(month)}</b></div><div><span>За год</span><b class="neg">≈ ${m0(year||month*12)}</b></div></div>
     <div class="alert bad">После выписки резерв снова уходит в долг как снятие или перевод: под ${pct(s.rC)} годовых и без льготы${fee?`, плюс комиссия ${m0(fee)}`:""}. Долг от этого не уменьшается, он только выглядит меньше в выписке. Если один раз закрыть эту сумму своими деньгами, проценты перестанут начисляться.</div>`;
   }
-  const plans=s.plans.map(p=>`<button class="item" data-act="plan" data-card="${esc(id)}" data-id="${esc(p.id)}"><span class="ic sub">${p.left}</span><span class="t"><span>${esc(p.name)}</span><span>${p.left>0?`осталось ${p.left} из ${p.months}, ${money(p.monthly)}${p.fee?" + "+money(p.fee)+(p.feeMonthly?" комиссия":" разово"):""}`:"выплачена"}</span></span><span class="a">${m0(p.rem)}<small>${p.fee&&p.feeMonthly&&p.left?"комиссия ещё "+m0(p.fee*p.left):""}</small></span></button>`).join("");
+  const plans=s.plans.map(p=>`<button class="item" data-act="plan" data-card="${esc(id)}" data-id="${esc(p.id)}"><span class="ic sub">${p.left}</span><span class="t"><span>${esc(p.name)}</span><span>${p.left>0?`осталось ${p.left} из ${p.months}, ${money(p.monthly)}${p.fee?" + "+money(p.fee)+(p.feeMonthly?" комиссия":" разово"):""}${p.left>1?", последний "+money(p.rem-p.monthly*(p.left-1)):""}`:"выплачена"}</span></span><span class="a">${m0(p.rem)}<small>${p.fee&&p.feeMonthly&&p.left?"комиссия ещё "+m0(p.fee*p.left):""}</small></span></button>`).join("");
   const hist=data.tx.filter(t=>t.debtId===id||t.cardId===id).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
   openView(s.name,`
     <div class="facts">
@@ -1507,6 +1752,9 @@ document.addEventListener("click",async e=>{
     case "payDebt":{const s=C.states.find(x=>x.id===id);txForm(null,{cat:"Кредиты",debtId:id,payKind:"regular",amount:s?String(s.nextAmount):"",date:today});break}
     case "earlyDebt":txForm(null,{cat:"Кредиты",debtId:id,payKind:"early",earlyMode:"term",date:today});break;
     case "addPlan":planForm(a.dataset.card,null);break;
+    case "fillSched":fillForm(id);break;
+    case "addRow":rowForm(id,null);break;
+    case "row":{if(a.dataset.debt.startsWith("ex-"))break;const d=data.debts.find(x=>x.id===a.dataset.debt);const r=d&&(d.schedule||[]).find(q=>q.id===id);if(r)rowForm(d.id,r);break}
     case "plan":{if(a.dataset.card.startsWith("ex-"))break;const d=data.debts.find(x=>x.id===a.dataset.card);const pl=d&&(d.plans||[]).find(q=>q.id===id);if(pl)planForm(d.id,pl);break}
     case "editDebt":{const d=data.debts.find(x=>x.id===id);if(d)debtForm(d);break}
     case "income":{const i=data.income.find(x=>x.id===id);incomeForm(i||null);break}
