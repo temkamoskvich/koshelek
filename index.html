@@ -86,7 +86,16 @@ input.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);borde
 .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;font-size:14px}
 .facts span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .facts b{font-weight:600}
-.sect{display:contents}
+.sect,.sect2{display:contents}
+.seg.every{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.rows{display:flex;flex-direction:column;gap:8px}
+.row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 36px;gap:6px;align-items:center}
+.gen{background:var(--surface-2);border-radius:12px;padding:10px}
+.gen-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.gen-row #genFirst{grid-column:1/-1}
+select.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 6px;width:100%;min-width:0}
+.row .del{border:0;background:var(--surface-2);height:36px;border-radius:10px;font-size:18px}
+.ghost{border:1px solid var(--line);background:none;padding:10px 14px;border-radius:12px;font-weight:600;margin-top:6px}
 </style>
 </head>
 <body>
@@ -125,31 +134,46 @@ function schedDate(first,n){
   const t=(m-1)+n, ny=y+Math.floor(t/12), nm=((t%12)+12)%12+1, last=new Date(ny,nm,0).getDate();
   return ny+"-"+pad(nm)+"-"+pad(Math.min(d,last));
 }
-/* Кредит с графиком: всё считается из условий и отмеченных платежей.
+const addDays=(s,n)=>{const [y,m,d]=s.split("-").map(Number);return iso(new Date(y,m-1,d+n))};
+const STEP={"2w":14,"w":7};
+/* Весь график платежей: раз в месяц, раз в 1–2 недели от первой даты или свой список дат и сумм. */
+function schedule(d){
+  if(d.every==="custom")return (d.rows||[]).filter(r=>r.date&&r.amount>0).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const total=+d.total||0,pay=+d.payment||0,last=+d.lastPayment>0?+d.lastPayment:pay,out=[];
+  if(!d.firstPay)return out;
+  for(let k=0;k<total;k++)out.push({date:STEP[d.every]?addDays(d.firstPay,k*STEP[d.every]):schedDate(d.firstPay,k),amount:k===total-1?last:pay});
+  return out;
+}
+/* Дата платежа, если сдвинуться от date на n шагов графика (n может быть отрицательным). */
+const shiftBy=(every,date,n)=>STEP[every]?addDays(date,n*STEP[every]):schedDate(date,n);
+/* Кредит или рассрочка с графиком: всё считается из условий и отмеченных платежей.
    Ранний платёж засчитывается за ближайшую дату графика и график не сдвигает. */
 function loanInfo(d){
-  const total=+d.total||0, pay=+d.payment||0, last=+d.lastPayment>0?+d.lastPayment:pay;
+  const sc=schedule(d),total=sc.length;
   const paidCount=Math.min(total,(+d.paidBefore||0)+(d.payments||[]).length);
   const left=Math.max(0,total-paidCount);
-  const remaining=left?r2((left-1)*pay+last):0;
-  const paidSum=r2((+d.paidBefore||0)*pay+(d.payments||[]).reduce((s,p)=>s+p.amount,0));
-  const schedTotal=total?r2((total-1)*pay+last):0;
-  return {total,pay,last,paidCount,left,remaining,paidSum,schedTotal,
+  const sum=l=>r2(l.reduce((s,x)=>s+x.amount,0));
+  const remaining=sum(sc.slice(paidCount));
+  const paidSum=r2(sum(sc.slice(0,Math.min(total,+d.paidBefore||0)))+(d.payments||[]).reduce((s,p)=>s+p.amount,0));
+  const schedTotal=sum(sc);
+  const lastRow=sc[total-1];
+  return {sched:sc,total,pay:+d.payment||0,last:lastRow?lastRow.amount:0,paidCount,left,remaining,paidSum,schedTotal,
     overpay:+d.amount>0?r2(schedTotal-d.amount):null,
-    nextDate:left&&d.firstPay?schedDate(d.firstPay,paidCount):"",
-    nextAmount:left===1?last:pay,
-    lastDate:total&&d.firstPay?schedDate(d.firstPay,total-1):"",
+    nextDate:left?sc[paidCount].date:"",
+    nextAmount:left?sc[paidCount].amount:0,
+    afterNext:left>1?sc[paidCount+1].date:"",
+    lastDate:lastRow?lastRow.date:"",
     /* Будущие проценты видны, пока с момента ввода остатка без процентов не прибавилось платежей. */
     futureInt:+d.principalNow>0&&d.principalAt===paidCount?r2(remaining-d.principalNow):null,
-    realRate:realRate(d,total,pay,last)};
+    realRate:realRate(d,sc)};
 }
 /* Реальная стоимость в % годовых: при какой ставке цена покупки равна всем платежам по графику. */
-function realRate(d,total,pay,last){
-  if(!(+d.amount>0)||!total||!d.firstPay)return null;
-  const start=d.issued||schedDate(d.firstPay,-1);
-  const flows=[];for(let k=0;k<total;k++)flows.push([(new Date(schedDate(d.firstPay,k))-new Date(start))/864e5/365,k===total-1?last:pay]);
+function realRate(d,sc){
+  if(!(+d.amount>0)||!sc.length)return null;
+  const start=d.issued||shiftBy(d.every,sc[0].date,-1);
+  const flows=sc.map(x=>[(new Date(x.date)-new Date(start))/864e5/365,x.amount]);
   const pv=r=>flows.reduce((s,[t,a])=>s+a/Math.pow(1+r,t),0);
-  if(pv(0)<=d.amount)return 0;
+  if(pv(0)<=d.amount+0.005)return 0;
   let lo=0,hi=20;for(let i=0;i<100;i++){const m=(lo+hi)/2;if(pv(m)>d.amount)lo=m;else hi=m}
   return Math.round(12*(Math.pow(1+lo,1/12)-1)*1000)/10;
 }
@@ -225,7 +249,7 @@ function item(d){
   const when=done?"Погашен":next?(late?"Просрочен с "+dLabel(next):(next===today?"Сегодня":dLabel(next))):"Дата не указана";
   return `<div class="debt${done?" done":""}">
     <button class="debt-top" data-act="edit" data-id="${esc(d.id)}"><span><span class="n">${esc(d.name)}</span><br><span class="b">${esc(d.bank||"")}</span></span>
-      <span style="text-align:right"><span class="sum">${money(bal)}</span>${L&&!done?`<br><span class="sub">${d.kind==="inst"?"рассрочка, ":""}по графику, с процентами</span>`:""}</span></button>
+      <span style="text-align:right"><span class="sum">${money(bal)}</span>${L&&!done?`<br><span class="sub">${d.kind==="inst"?"рассрочка, ":""}${L.overpay===0?"без переплаты":L.overpay==null?"по графику":"по графику, с процентами"}</span>`:""}</span></button>
     <div class="debt-bottom"><span class="when${late?" late":""}">${pay&&!done?"Платёж "+money(pay)+" · ":""}${when}${L&&!done?`<br><span class="sub">Осталось ${L.left} из ${L.total} платежей</span>`:""}</span>${done?"":`<button class="pay" data-act="pay" data-id="${esc(d.id)}">Оплатил</button>`}</div>
   </div>`;
 }
@@ -255,10 +279,10 @@ function debtForm(d){
       <div><span>Уже заплатил</span><b>${money(L.paidSum)}</b></div>
       <div><span>Последний платёж</span><b>${L.lastDate?money(L.last)+", "+new Date(L.lastDate+"T00:00:00").toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"}):"—"}</b></div>
       <div><span>Всего по графику</span><b>${money(L.schedTotal)}</b></div>
-      ${L.overpay!=null?`<div><span>Переплата</span><b style="color:var(--out)">${money(L.overpay)}</b></div>`:""}
+      ${L.overpay!=null?`<div><span>Переплата</span><b style="color:${L.overpay>0?"var(--out)":"var(--in)"}">${L.overpay>0?money(L.overpay):"нет"}</b></div>`:""}
       ${L.futureInt!=null?`<div><span>Из остатка — проценты</span><b style="color:var(--out)">${money(L.futureInt)}</b></div>`:""}
       ${d.rate?`<div><span>Ставка по договору</span><b>${fmt.format(d.rate)}% годовых</b></div>`:""}
-      ${L.realRate!=null?`<div><span>Реальная стоимость</span><b>≈ ${fmt.format(L.realRate)}% годовых</b></div>`:""}
+      ${L.realRate?`<div><span>Реальная стоимость</span><b>≈ ${fmt.format(L.realRate)}% годовых</b></div>`:""}
     </div>
     ${L.realRate!=null&&d.rate&&Math.abs(L.realRate-d.rate)>2?`<p class="note">Реальная стоимость посчитана по ${d.kind==="inst"?"цене покупки":"сумме кредита"} и всем платежам графика. Она отличается от ставки по договору: в платежах есть комиссии или ставка менялась.</p>`:""}
     ${+d.principalNow>0&&L.futureInt==null&&L.left?`<p class="note">Остаток без процентов был указан до последних платежей. Обновите его из приложения банка, чтобы видеть будущие проценты.</p>`:""}`:"";
@@ -276,11 +300,23 @@ function debtForm(d){
       <label class="field half"><span class="label" data-l-loan="Сумма кредита, ₽" data-l-inst="Стоимость покупки, ₽">Сумма, ₽</span><input class="in" id="amount" inputmode="decimal" value="${esc(v.amount==null?"":String(v.amount).replace(".",","))}" autocomplete="off"></label>
       ${field("rate","Ставка, % годовых",v.rate,{num:true,half:true,hint:"Если знаете"})}
       <label class="field half"><span class="label" data-l-loan="Дата выдачи" data-l-inst="Дата покупки">Дата</span><input class="in" id="issued" type="date" value="${esc(v.issued||"")}"><span class="hint">Необязательно</span></label>
-      ${field("total","Всего платежей",v.total,{num:true,half:true,hint:"Срок в месяцах"})}
-      ${field("lpayment","Ежемесячный платёж, ₽",isLoan(v)?v.payment:"",{num:true,half:true})}
-      ${field("lastPayment","Последний платёж, ₽",v.lastPayment,{num:true,half:true,hint:"Если отличается"})}
-      ${field("paidBefore","Уже внесено платежей",d&&isLoan(d)?(+d.paidBefore||0)+(d.payments||[]).length:v.paidBefore,{num:true,half:true})}
-      ${field("nextPay","Ближайший платёж",d&&isLoan(d)?loanInfo(d).nextDate:"",{type:"date",half:true,hint:"Дальше тем же числом каждый месяц"})}
+      <div class="seg every" role="radiogroup" aria-label="Как часто платёж">${[["month","Раз в месяц"],["2w","Раз в 2 недели"],["w","Раз в неделю"],["custom","Разные суммы"]].map(([x,l])=>`<label><input type="radio" name="every" value="${x}" ${(v.every||"month")===x?"checked":""}>${l}</label>`).join("")}</div>
+      <div class="sect2" data-every="month 2w w">
+        ${field("total","Всего платежей",v.every==="custom"?"":v.total,{num:true,half:true})}
+        ${field("lpayment","Платёж, ₽",isLoan(v)&&v.every!=="custom"?v.payment:"",{num:true,half:true})}
+        ${field("lastPayment","Последний платёж, ₽",v.every==="custom"?"":v.lastPayment,{num:true,half:true,hint:"Если отличается"})}
+        ${field("nextPay","Ближайший платёж",d&&isLoan(d)?loanInfo(d).nextDate:"",{type:"date",half:true,hint:"Дальше даты посчитаются сами"})}
+      </div>
+      <div class="sect2" data-every="custom">
+        <div class="field gen"><span class="label">Быстро расставить даты</span>
+          <div class="gen-row"><input class="in" id="genFirst" type="date" aria-label="Первый платёж"><input class="in" id="genCount" inputmode="numeric" placeholder="Платежей" aria-label="Сколько платежей">
+          <select class="in" id="genStep" aria-label="Шаг"><option value="month">раз в месяц</option><option value="2w">раз в 2 недели</option><option value="w">раз в неделю</option></select></div>
+          <button type="button" class="ghost" data-act="gen">Расставить даты</button>
+          <span class="hint">Первый платёж графика, число платежей и шаг. Потом впишите суммы. Уже заполненные суммы сохранятся по порядку.</span></div>
+        <div class="field"><span class="label">Платежи: дата и сумма</span><div class="rows" id="rows">${((v.every==="custom"&&v.rows)||[]).map(rowHTML).join("")||rowHTML({})}</div>
+        <button type="button" class="ghost" data-act="rowadd">+ Платёж</button><span class="hint">Впишите все платежи из приложения банка, включая уже внесённые</span></div>
+      </div>
+      ${field("paidBefore","Уже внесено платежей",d&&isLoan(d)?(+d.paidBefore||0)+(d.payments||[]).length:v.paidBefore,{num:true,half:true,hint:"Сколько платежей из графика уже позади"})}
       ${field("principalNow","Остаток без процентов, ₽",v.principalNow,{num:true,hint:"Необязательно. Если банк назвал, будет видно, сколько процентов ещё впереди"})}
     </div>
     </div>
@@ -291,16 +327,29 @@ function debtForm(d){
       const base={...(d||{id:uid(),payments:[],created:Date.now()}),kind,name,bank:$("bank").value.trim()};
       let o;
       if(kind==="loan"||kind==="inst"){
-        const total=parseInt($("total").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
-        const pay=parseNum($("lpayment").value);if(!(pay>0))return "Укажите ежемесячный платёж.";
-        const paid=parseInt($("paidBefore").value||"0",10);if(!(paid>=0&&paid<=total))return "Проверьте, сколько платежей уже внесено.";
-        const next=$("nextPay").value;if(!next&&paid<total)return "Укажите дату ближайшего платежа.";
+        const every=document.querySelector('#f [name=every]:checked').value;
         /* Отмеченные в приложении оплаты остаются в истории, поэтому «внесено до приложения» = всего внесено − отмеченные. */
         const inApp=d&&isLoan(d)?(d.payments||[]).length:0;
-        const firstPay=next?schedDate(next,-paid):(d&&d.firstPay)||"";
-        const amt=parseNum($("amount").value),rate=parseNum($("rate").value),lp=parseNum($("lastPayment").value),pn=parseNum($("principalNow").value);
-        o={...base,total,payment:r2(pay),firstPay,paidBefore:Math.max(0,paid-inApp),amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
-          lastPayment:lp>0?r2(lp):null,issued:$("issued").value||"",
+        const paid=parseInt($("paidBefore").value||"0",10);
+        const amt=parseNum($("amount").value),rate=parseNum($("rate").value),pn=parseNum($("principalNow").value);
+        let plan;
+        if(every==="custom"){
+          const rows=[...document.querySelectorAll("#rows .row")].map(r=>({date:r.querySelector(".rd").value,amount:r2(parseNum(r.querySelector(".ra").value))}))
+            .filter(r=>r.date||r.amount>0);
+          if(!rows.length)return "Впишите хотя бы один платёж.";
+          if(rows.some(r=>!r.date||!(r.amount>0)))return "У каждого платежа нужны дата и сумма.";
+          if(!(paid>=0&&paid<=rows.length))return "Проверьте, сколько платежей уже внесено.";
+          plan={every,rows:rows.map(r=>({id:uid(),...r})),total:rows.length,payment:null,lastPayment:null,firstPay:""};
+        }else{
+          const total=parseInt($("total").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
+          const pay=parseNum($("lpayment").value);if(!(pay>0))return "Укажите размер платежа.";
+          if(!(paid>=0&&paid<=total))return "Проверьте, сколько платежей уже внесено.";
+          const next=$("nextPay").value;if(!next&&paid<total)return "Укажите дату ближайшего платежа.";
+          const lp=parseNum($("lastPayment").value);
+          plan={every,rows:[],total,payment:r2(pay),lastPayment:lp>0?r2(lp):null,firstPay:next?shiftBy(every,next,-paid):(d&&d.firstPay)||""};
+        }
+        o={...base,...plan,paidBefore:Math.max(0,paid-inApp),amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
+          issued:$("issued").value||"",
           principalNow:pn>0?r2(pn):null,principalAt:pn>0?(pn===d?.principalNow&&d?.principalAt!=null?d.principalAt:paid):null};
       }else{
         const bal=parseNum($("balance").value);if(!isFinite(bal)||bal<0)return "Введите, сколько должны.";
@@ -313,15 +362,18 @@ function debtForm(d){
     d?()=>{debts=debts.filter(x=>x.id!==d.id);save()}:null);
   showKind();
 }
+const rowHTML=r=>`<div class="row"><input class="in rd" type="date" value="${esc(r.date||"")}" aria-label="Дата"><input class="in ra" inputmode="decimal" placeholder="Сумма" value="${r.amount?esc(String(r.amount).replace(".",",")):""}" aria-label="Сумма"><button type="button" class="del" data-act="rowdel" aria-label="Убрать">×</button></div>`;
 /* Показывать только поля выбранного вида долга. */
 function showKind(){
   const r=document.querySelector('#f [name=kind]:checked');if(!r)return;
   document.querySelectorAll('#f .sect').forEach(el=>{el.hidden=!el.dataset.for.split(" ").includes(r.value)});
   document.querySelectorAll('#f [data-l-loan]').forEach(el=>{el.textContent=el.dataset["l"+(r.value==="inst"?"Inst":"Loan")]});
+  const e=document.querySelector('#f [name=every]:checked');
+  document.querySelectorAll('#f .sect2').forEach(el=>{el.hidden=!e||!el.dataset.every.split(" ").includes(e.value)});
 }
 function payForm(d){
   const L=isLoan(d)?loanInfo(d):null;
-  const after=L?(L.left>1?"Следующий платёж по графику: "+dLabel(schedDate(d.firstPay,L.paidCount+1))+".":"Это последний платёж."):
+  const after=L?(L.left>1?"Следующий платёж по графику: "+money(L.sched[L.paidCount+1].amount)+", "+dLabel(L.afterNext)+".":"Это последний платёж."):
     (d.monthly!==false&&d.nextDate?"Сумма вычтется из долга, следующий платёж переедет на "+dLabel(nextMonth(d.nextDate))+".":"Сумма вычтется из долга.");
   openSheet("Оплата: "+d.name,`<div class="fields">
     ${field("amount","Сколько заплатил, ₽",L?L.nextAmount:(d.payment||""),{num:true,half:true})}
@@ -346,6 +398,21 @@ document.addEventListener("click",e=>{
   const d=debts.find(x=>x.id===a.dataset.id);
   switch(a.dataset.act){
     case "close":closeSheet();break;
+    case "rowadd":{
+      /* Новая строка: следующая дата с тем же шагом, что между двумя последними, и та же сумма. */
+      const rows=[...document.querySelectorAll("#rows .row")],lastR=rows[rows.length-1],prev=rows[rows.length-2];
+      let date="",amount="";
+      if(lastR){const ld=lastR.querySelector(".rd").value;amount=parseNum(lastR.querySelector(".ra").value)||"";
+        if(ld){const pd=prev&&prev.querySelector(".rd").value;const gap=pd?Math.round((new Date(ld)-new Date(pd))/864e5):0;date=gap>0&&gap<28?addDays(ld,gap):schedDate(ld,1)}}
+      $("rows").insertAdjacentHTML("beforeend",rowHTML({date,amount}));break}
+    case "gen":{
+      const first=$("genFirst").value,n=parseInt($("genCount").value,10),step=$("genStep").value;
+      if(!first||!(n>=1&&n<=120)){$("err").textContent="Для расстановки дат укажите первый платёж и сколько их.";break}
+      $("err").textContent="";
+      const old=[...document.querySelectorAll("#rows .ra")].map(i=>i.value);
+      $("rows").innerHTML=Array.from({length:n},(_,k)=>rowHTML({date:shiftBy(step,first,k),amount:parseNum(old[k])||""})).join("");
+      const f=document.querySelector("#rows .ra");if(f)f.focus();break}
+    case "rowdel":{const rows=document.querySelectorAll("#rows .row");if(rows.length>1)a.closest(".row").remove();else a.closest(".row").querySelectorAll("input").forEach(i=>i.value="");break}
     case "edit":if(d)debtForm(d);break;
     case "pay":if(d)payForm(d);break;
     case "del":
@@ -354,7 +421,7 @@ document.addEventListener("click",e=>{
   }
 });
 $("add").addEventListener("click",()=>debtForm(null));
-$("sheet").addEventListener("change",e=>{if(e.target.name==="kind")showKind()});
+$("sheet").addEventListener("change",e=>{if(e.target.name==="kind"||e.target.name==="every")showKind()});
 $("sheet").addEventListener("submit",e=>{
   e.preventDefault();if(!sheet)return;
   const err=sheet.onSave();
