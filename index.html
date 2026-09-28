@@ -122,7 +122,7 @@ function nextMonth(s){
 /* Дата платежа номер n (с нуля) по графику: то же число, что у первого платежа; в коротком месяце — последний день. */
 function schedDate(first,n){
   const [y,m,d]=first.split("-").map(Number);
-  const t=(m-1)+n, ny=y+Math.floor(t/12), nm=t%12+1, last=new Date(ny,nm,0).getDate();
+  const t=(m-1)+n, ny=y+Math.floor(t/12), nm=((t%12)+12)%12+1, last=new Date(ny,nm,0).getDate();
   return ny+"-"+pad(nm)+"-"+pad(Math.min(d,last));
 }
 /* Кредит с графиком: всё считается из условий и отмеченных платежей.
@@ -138,9 +138,22 @@ function loanInfo(d){
     overpay:+d.amount>0?r2(schedTotal-d.amount):null,
     nextDate:left&&d.firstPay?schedDate(d.firstPay,paidCount):"",
     nextAmount:left===1?last:pay,
-    lastDate:total&&d.firstPay?schedDate(d.firstPay,total-1):""};
+    lastDate:total&&d.firstPay?schedDate(d.firstPay,total-1):"",
+    /* Будущие проценты видны, пока с момента ввода остатка без процентов не прибавилось платежей. */
+    futureInt:+d.principalNow>0&&d.principalAt===paidCount?r2(remaining-d.principalNow):null,
+    realRate:realRate(d,total,pay,last)};
 }
-const isLoan=d=>d.kind==="loan";
+/* Реальная стоимость в % годовых: при какой ставке цена покупки равна всем платежам по графику. */
+function realRate(d,total,pay,last){
+  if(!(+d.amount>0)||!total||!d.firstPay)return null;
+  const start=d.issued||schedDate(d.firstPay,-1);
+  const flows=[];for(let k=0;k<total;k++)flows.push([(new Date(schedDate(d.firstPay,k))-new Date(start))/864e5/365,k===total-1?last:pay]);
+  const pv=r=>flows.reduce((s,[t,a])=>s+a/Math.pow(1+r,t),0);
+  if(pv(0)<=d.amount)return 0;
+  let lo=0,hi=20;for(let i=0;i<100;i++){const m=(lo+hi)/2;if(pv(m)>d.amount)lo=m;else hi=m}
+  return Math.round(12*(Math.pow(1+lo,1/12)-1)*1000)/10;
+}
+const isLoan=d=>d.kind==="loan"||d.kind==="inst";
 const balOf=d=>isLoan(d)?loanInfo(d).remaining:d.balance;
 const nextOf=d=>isLoan(d)?loanInfo(d).nextDate:d.nextDate;
 
@@ -212,7 +225,7 @@ function item(d){
   const when=done?"Погашен":next?(late?"Просрочен с "+dLabel(next):(next===today?"Сегодня":dLabel(next))):"Дата не указана";
   return `<div class="debt${done?" done":""}">
     <button class="debt-top" data-act="edit" data-id="${esc(d.id)}"><span><span class="n">${esc(d.name)}</span><br><span class="b">${esc(d.bank||"")}</span></span>
-      <span style="text-align:right"><span class="sum">${money(bal)}</span>${L&&!done?`<br><span class="sub">по графику, с процентами</span>`:""}</span></button>
+      <span style="text-align:right"><span class="sum">${money(bal)}</span>${L&&!done?`<br><span class="sub">${d.kind==="inst"?"рассрочка, ":""}по графику, с процентами</span>`:""}</span></button>
     <div class="debt-bottom"><span class="when${late?" late":""}">${pay&&!done?"Платёж "+money(pay)+" · ":""}${when}${L&&!done?`<br><span class="sub">Осталось ${L.left} из ${L.total} платежей</span>`:""}</span>${done?"":`<button class="pay" data-act="pay" data-id="${esc(d.id)}">Оплатил</button>`}</div>
   </div>`;
 }
@@ -233,7 +246,7 @@ const field=(k,label,val,o={})=>`<label class="field${o.half?" half":""}"><span 
 
 function debtForm(d){
   const v=d||{kind:"simple",name:"",bank:"",balance:"",payment:"",nextDate:"",monthly:true};
-  const k=v.kind==="loan"?"loan":"simple";
+  const k=["loan","inst"].includes(v.kind)?v.kind:"simple";
   const L=d&&isLoan(d)?loanInfo(d):null;
   const facts=L?`<div class="facts">
       <div><span>Осталось платежей</span><b>${L.left} из ${L.total}</b></div>
@@ -243,10 +256,14 @@ function debtForm(d){
       <div><span>Последний платёж</span><b>${L.lastDate?money(L.last)+", "+new Date(L.lastDate+"T00:00:00").toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"}):"—"}</b></div>
       <div><span>Всего по графику</span><b>${money(L.schedTotal)}</b></div>
       ${L.overpay!=null?`<div><span>Переплата</span><b style="color:var(--out)">${money(L.overpay)}</b></div>`:""}
-      ${d.rate?`<div><span>Ставка</span><b>${fmt.format(d.rate)}% годовых</b></div>`:""}
-    </div>`:"";
+      ${L.futureInt!=null?`<div><span>Из остатка — проценты</span><b style="color:var(--out)">${money(L.futureInt)}</b></div>`:""}
+      ${d.rate?`<div><span>Ставка по договору</span><b>${fmt.format(d.rate)}% годовых</b></div>`:""}
+      ${L.realRate!=null?`<div><span>Реальная стоимость</span><b>≈ ${fmt.format(L.realRate)}% годовых</b></div>`:""}
+    </div>
+    ${L.realRate!=null&&d.rate&&Math.abs(L.realRate-d.rate)>2?`<p class="note">Реальная стоимость посчитана по ${d.kind==="inst"?"цене покупки":"сумме кредита"} и всем платежам графика. Она отличается от ставки по договору: в платежах есть комиссии или ставка менялась.</p>`:""}
+    ${+d.principalNow>0&&L.futureInt==null&&L.left?`<p class="note">Остаток без процентов был указан до последних платежей. Обновите его из приложения банка, чтобы видеть будущие проценты.</p>`:""}`:"";
   openSheet(d?"Долг":"Новый долг",`${facts}<div class="fields">
-    <div class="seg" role="radiogroup"><label><input type="radio" name="kind" value="simple" ${k==="simple"?"checked":""}>Долг</label><label><input type="radio" name="kind" value="loan" ${k==="loan"?"checked":""}>Кредит с графиком</label></div>
+    <div class="seg" role="radiogroup"><label><input type="radio" name="kind" value="simple" ${k==="simple"?"checked":""}>Долг</label><label><input type="radio" name="kind" value="loan" ${k==="loan"?"checked":""}>Кредит</label><label><input type="radio" name="kind" value="inst" ${k==="inst"?"checked":""}>Рассрочка</label></div>
     ${field("name","Название",v.name,{ph:"Например, кредит наличными"})}
     ${field("bank","Кому должен",v.bank,{ph:"Банк или человек, необязательно"})}
     <div class="sect" data-for="simple">
@@ -255,15 +272,16 @@ function debtForm(d){
       ${field("nextDate","Следующий платёж",v.nextDate,{type:"date",hint:"Необязательно"})}
       <label class="check"><input type="checkbox" id="monthly" ${v.monthly!==false?"checked":""}> Платёж каждый месяц</label>
     </div>
-    <div class="sect" data-for="loan">
-      ${field("amount","Сумма кредита, ₽",v.amount,{num:true,half:true})}
-      ${field("rate","Ставка, % годовых",v.rate,{num:true,half:true})}
-      ${field("issued","Дата выдачи",v.issued,{type:"date",half:true})}
+    <div class="sect" data-for="loan inst">
+      <label class="field half"><span class="label" data-l-loan="Сумма кредита, ₽" data-l-inst="Стоимость покупки, ₽">Сумма, ₽</span><input class="in" id="amount" inputmode="decimal" value="${esc(v.amount==null?"":String(v.amount).replace(".",","))}" autocomplete="off"></label>
+      ${field("rate","Ставка, % годовых",v.rate,{num:true,half:true,hint:"Если знаете"})}
+      <label class="field half"><span class="label" data-l-loan="Дата выдачи" data-l-inst="Дата покупки">Дата</span><input class="in" id="issued" type="date" value="${esc(v.issued||"")}"><span class="hint">Необязательно</span></label>
       ${field("total","Всего платежей",v.total,{num:true,half:true,hint:"Срок в месяцах"})}
-      ${field("lpayment","Ежемесячный платёж, ₽",k==="loan"?v.payment:"",{num:true,half:true})}
+      ${field("lpayment","Ежемесячный платёж, ₽",isLoan(v)?v.payment:"",{num:true,half:true})}
       ${field("lastPayment","Последний платёж, ₽",v.lastPayment,{num:true,half:true,hint:"Если отличается"})}
-      ${field("firstPay","Дата первого платежа",v.firstPay,{type:"date",half:true,hint:"Дальше тем же числом каждый месяц"})}
-      ${field("paidBefore","Уже внесено платежей",v.paidBefore,{num:true,half:true,hint:"До того, как завели в приложении"})}
+      ${field("paidBefore","Уже внесено платежей",d&&isLoan(d)?(+d.paidBefore||0)+(d.payments||[]).length:v.paidBefore,{num:true,half:true})}
+      ${field("nextPay","Ближайший платёж",d&&isLoan(d)?loanInfo(d).nextDate:"",{type:"date",half:true,hint:"Дальше тем же числом каждый месяц"})}
+      ${field("principalNow","Остаток без процентов, ₽",v.principalNow,{num:true,hint:"Необязательно. Если банк назвал, будет видно, сколько процентов ещё впереди"})}
     </div>
     </div>
     ${d&&(d.payments||[]).length?`<span class="label">Оплаты в приложении</span><div class="hist">${d.payments.slice().reverse().map(p=>`<div><span>${dLabel(p.date)}</span><b>${money(p.amount)}</b></div>`).join("")}</div>`:""}`,
@@ -272,14 +290,18 @@ function debtForm(d){
       const name=$("name").value.trim();if(!name)return "Введите название.";
       const base={...(d||{id:uid(),payments:[],created:Date.now()}),kind,name,bank:$("bank").value.trim()};
       let o;
-      if(kind==="loan"){
+      if(kind==="loan"||kind==="inst"){
         const total=parseInt($("total").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
         const pay=parseNum($("lpayment").value);if(!(pay>0))return "Укажите ежемесячный платёж.";
-        const first=$("firstPay").value;if(!first)return "Укажите дату первого платежа.";
-        const pb=parseInt($("paidBefore").value||"0",10);if(!(pb>=0&&pb<=total))return "Проверьте, сколько платежей уже внесено.";
-        const amt=parseNum($("amount").value),rate=parseNum($("rate").value),lp=parseNum($("lastPayment").value);
-        o={...base,total,payment:r2(pay),firstPay:first,paidBefore:pb,amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
-          lastPayment:lp>0?r2(lp):null,issued:$("issued").value||""};
+        const paid=parseInt($("paidBefore").value||"0",10);if(!(paid>=0&&paid<=total))return "Проверьте, сколько платежей уже внесено.";
+        const next=$("nextPay").value;if(!next&&paid<total)return "Укажите дату ближайшего платежа.";
+        /* Отмеченные в приложении оплаты остаются в истории, поэтому «внесено до приложения» = всего внесено − отмеченные. */
+        const inApp=d&&isLoan(d)?(d.payments||[]).length:0;
+        const firstPay=next?schedDate(next,-paid):(d&&d.firstPay)||"";
+        const amt=parseNum($("amount").value),rate=parseNum($("rate").value),lp=parseNum($("lastPayment").value),pn=parseNum($("principalNow").value);
+        o={...base,total,payment:r2(pay),firstPay,paidBefore:Math.max(0,paid-inApp),amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
+          lastPayment:lp>0?r2(lp):null,issued:$("issued").value||"",
+          principalNow:pn>0?r2(pn):null,principalAt:pn>0?(pn===d?.principalNow&&d?.principalAt!=null?d.principalAt:paid):null};
       }else{
         const bal=parseNum($("balance").value);if(!isFinite(bal)||bal<0)return "Введите, сколько должны.";
         const pay=parseNum($("payment").value);
@@ -294,7 +316,8 @@ function debtForm(d){
 /* Показывать только поля выбранного вида долга. */
 function showKind(){
   const r=document.querySelector('#f [name=kind]:checked');if(!r)return;
-  document.querySelectorAll('#f .sect').forEach(el=>{el.hidden=el.dataset.for!==r.value});
+  document.querySelectorAll('#f .sect').forEach(el=>{el.hidden=!el.dataset.for.split(" ").includes(r.value)});
+  document.querySelectorAll('#f [data-l-loan]').forEach(el=>{el.textContent=el.dataset["l"+(r.value==="inst"?"Inst":"Loan")]});
 }
 function payForm(d){
   const L=isLoan(d)?loanInfo(d):null;
