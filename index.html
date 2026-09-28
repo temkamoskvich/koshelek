@@ -82,7 +82,7 @@ input.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);borde
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--surface-2);border-radius:12px;padding:4px;grid-column:1/-1}
 .seg label{text-align:center;padding:9px 4px;border-radius:9px;font-weight:600;color:var(--muted);font-size:14px;cursor:pointer}
 .seg input{position:absolute;opacity:0;pointer-events:none}
-.seg label:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.seg label.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;font-size:14px}
 .facts span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .facts b{font-weight:600}
@@ -100,7 +100,7 @@ select.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);bord
 </head>
 <body>
 <div class="wrap">
-  <header class="top"><span class="brand">Кошелёк</span><span class="sync" id="sync"></span></header>
+  <header class="top"><span class="brand">Кошелёк</span><span class="sync"><span id="sync"></span> · версия 14</span></header>
   <section class="total"><span class="label">Всего долгов</span><span class="num" id="total">0 ₽</span><p class="note" id="count"></p></section>
   <div class="list" id="list"></div>
 </div>
@@ -350,7 +350,7 @@ function debtForm(d){
         }
         o={...base,...plan,paidBefore:Math.max(0,paid-inApp),amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
           issued:$("issued").value||"",
-          principalNow:pn>0?r2(pn):null,principalAt:pn>0?(pn===d?.principalNow&&d?.principalAt!=null?d.principalAt:paid):null};
+          principalNow:pn>0?r2(pn):null,principalAt:pn>0?(d&&pn===d.principalNow&&d.principalAt!=null?d.principalAt:paid):null};
       }else{
         const bal=parseNum($("balance").value);if(!isFinite(bal)||bal<0)return "Введите, сколько должны.";
         const pay=parseNum($("payment").value);
@@ -366,6 +366,8 @@ const rowHTML=r=>`<div class="row"><input class="in rd" type="date" value="${esc
 /* Показывать только поля выбранного вида долга. */
 function showKind(){
   const r=document.querySelector('#f [name=kind]:checked');if(!r)return;
+  /* Подсветка выбранного варианта классом, а не :has() — старые встроенные браузеры Telegram его не знают. */
+  document.querySelectorAll('#f .seg label').forEach(l=>l.classList.toggle("on",!!l.querySelector("input:checked")));
   document.querySelectorAll('#f .sect').forEach(el=>{el.hidden=!el.dataset.for.split(" ").includes(r.value)});
   document.querySelectorAll('#f [data-l-loan]').forEach(el=>{el.textContent=el.dataset["l"+(r.value==="inst"?"Inst":"Loan")]});
   const e=document.querySelector('#f [name=every]:checked');
