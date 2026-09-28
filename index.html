@@ -100,7 +100,7 @@ select.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);bord
 </head>
 <body>
 <div class="wrap">
-  <header class="top"><span class="brand">Кошелёк</span><span class="sync"><span id="sync"></span> · версия 14</span></header>
+  <header class="top"><span class="brand">Кошелёк</span><span class="sync"><span id="sync"></span> · версия 15</span></header>
   <section class="total"><span class="label">Всего долгов</span><span class="num" id="total">0 ₽</span><p class="note" id="count"></p></section>
   <div class="list" id="list"></div>
 </div>
@@ -284,7 +284,7 @@ function debtForm(d){
       ${d.rate?`<div><span>Ставка по договору</span><b>${fmt.format(d.rate)}% годовых</b></div>`:""}
       ${L.realRate?`<div><span>Реальная стоимость</span><b>≈ ${fmt.format(L.realRate)}% годовых</b></div>`:""}
     </div>
-    ${L.realRate!=null&&d.rate&&Math.abs(L.realRate-d.rate)>2?`<p class="note">Реальная стоимость посчитана по ${d.kind==="inst"?"цене покупки":"сумме кредита"} и всем платежам графика. Она отличается от ставки по договору: в платежах есть комиссии или ставка менялась.</p>`:""}
+    ${L.realRate!=null&&d.rate&&Math.abs(L.realRate-d.rate)>2?`<p class="note">Реальная стоимость посчитана по ${d.kind==="inst"?"цене покупки":"сумме, которую взяли,"} и всем платежам графика. Она отличается от ставки по договору: в платежах есть комиссии или ставка менялась.</p>`:""}
     ${+d.principalNow>0&&L.futureInt==null&&L.left?`<p class="note">Остаток без процентов был указан до последних платежей. Обновите его из приложения банка, чтобы видеть будущие проценты.</p>`:""}`:"";
   openSheet(d?"Долг":"Новый долг",`${facts}<div class="fields">
     <div class="seg" role="radiogroup"><label><input type="radio" name="kind" value="simple" ${k==="simple"?"checked":""}>Долг</label><label><input type="radio" name="kind" value="loan" ${k==="loan"?"checked":""}>Кредит</label><label><input type="radio" name="kind" value="inst" ${k==="inst"?"checked":""}>Рассрочка</label></div>
@@ -297,12 +297,12 @@ function debtForm(d){
       <label class="check"><input type="checkbox" id="monthly" ${v.monthly!==false?"checked":""}> Платёж каждый месяц</label>
     </div>
     <div class="sect" data-for="loan inst">
-      <label class="field half"><span class="label" data-l-loan="Сумма кредита, ₽" data-l-inst="Стоимость покупки, ₽">Сумма, ₽</span><input class="in" id="amount" inputmode="decimal" value="${esc(v.amount==null?"":String(v.amount).replace(".",","))}" autocomplete="off"></label>
+      <label class="field half"><span class="label" data-l-loan="Сколько взяли, ₽" data-l-inst="Цена покупки, ₽">Сумма, ₽</span><input class="in" id="amount" inputmode="decimal" value="${esc(v.amount==null?"":String(v.amount).replace(".",","))}" autocomplete="off"><span class="hint" data-l-loan="Без процентов, как в договоре" data-l-inst="Без переплаты">Без процентов</span></label>
       ${field("rate","Ставка, % годовых",v.rate,{num:true,half:true,hint:"Если знаете"})}
       <label class="field half"><span class="label" data-l-loan="Дата выдачи" data-l-inst="Дата покупки">Дата</span><input class="in" id="issued" type="date" value="${esc(v.issued||"")}"><span class="hint">Необязательно</span></label>
       <div class="seg every" role="radiogroup" aria-label="Как часто платёж">${[["month","Раз в месяц"],["2w","Раз в 2 недели"],["w","Раз в неделю"],["custom","Разные суммы"]].map(([x,l])=>`<label><input type="radio" name="every" value="${x}" ${(v.every||"month")===x?"checked":""}>${l}</label>`).join("")}</div>
       <div class="sect2" data-every="month 2w w">
-        ${field("total","Всего платежей",v.every==="custom"?"":v.total,{num:true,half:true})}
+        ${field("ntotal","Всего платежей",v.every==="custom"?"":v.total,{num:true,half:true})}
         ${field("lpayment","Платёж, ₽",isLoan(v)&&v.every!=="custom"?v.payment:"",{num:true,half:true})}
         ${field("lastPayment","Последний платёж, ₽",v.every==="custom"?"":v.lastPayment,{num:true,half:true,hint:"Если отличается"})}
         ${field("nextPay","Ближайший платёж",d&&isLoan(d)?loanInfo(d).nextDate:"",{type:"date",half:true,hint:"Дальше даты посчитаются сами"})}
@@ -341,7 +341,7 @@ function debtForm(d){
           if(!(paid>=0&&paid<=rows.length))return "Проверьте, сколько платежей уже внесено.";
           plan={every,rows:rows.map(r=>({id:uid(),...r})),total:rows.length,payment:null,lastPayment:null,firstPay:""};
         }else{
-          const total=parseInt($("total").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
+          const total=parseInt($("ntotal").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
           const pay=parseNum($("lpayment").value);if(!(pay>0))return "Укажите размер платежа.";
           if(!(paid>=0&&paid<=total))return "Проверьте, сколько платежей уже внесено.";
           const next=$("nextPay").value;if(!next&&paid<total)return "Укажите дату ближайшего платежа.";
