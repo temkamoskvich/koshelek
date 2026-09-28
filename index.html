@@ -78,6 +78,15 @@ input.in{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);borde
 .hist{display:flex;flex-direction:column}
 .hist div{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
 .hist div:last-child{border-bottom:0}
+.sub{font-size:12px;color:var(--muted)}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--surface-2);border-radius:12px;padding:4px;grid-column:1/-1}
+.seg label{text-align:center;padding:9px 4px;border-radius:9px;font-weight:600;color:var(--muted);font-size:14px;cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;font-size:14px}
+.facts span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.facts b{font-weight:600}
+.sect{display:contents}
 </style>
 </head>
 <body>
@@ -109,6 +118,31 @@ function nextMonth(s){
   const ny=m===12?y+1:y, nm=m===12?1:m+1, last=new Date(ny,nm,0).getDate();
   return ny+"-"+pad(nm)+"-"+pad(Math.min(d,last));
 }
+
+/* Дата платежа номер n (с нуля) по графику: то же число, что у первого платежа; в коротком месяце — последний день. */
+function schedDate(first,n){
+  const [y,m,d]=first.split("-").map(Number);
+  const t=(m-1)+n, ny=y+Math.floor(t/12), nm=t%12+1, last=new Date(ny,nm,0).getDate();
+  return ny+"-"+pad(nm)+"-"+pad(Math.min(d,last));
+}
+/* Кредит с графиком: всё считается из условий и отмеченных платежей.
+   Ранний платёж засчитывается за ближайшую дату графика и график не сдвигает. */
+function loanInfo(d){
+  const total=+d.total||0, pay=+d.payment||0, last=+d.lastPayment>0?+d.lastPayment:pay;
+  const paidCount=Math.min(total,(+d.paidBefore||0)+(d.payments||[]).length);
+  const left=Math.max(0,total-paidCount);
+  const remaining=left?r2((left-1)*pay+last):0;
+  const paidSum=r2((+d.paidBefore||0)*pay+(d.payments||[]).reduce((s,p)=>s+p.amount,0));
+  const schedTotal=total?r2((total-1)*pay+last):0;
+  return {total,pay,last,paidCount,left,remaining,paidSum,schedTotal,
+    overpay:+d.amount>0?r2(schedTotal-d.amount):null,
+    nextDate:left&&d.firstPay?schedDate(d.firstPay,paidCount):"",
+    nextAmount:left===1?last:pay,
+    lastDate:total&&d.firstPay?schedDate(d.firstPay,total-1):""};
+}
+const isLoan=d=>d.kind==="loan";
+const balOf=d=>isLoan(d)?loanInfo(d).remaining:d.balance;
+const nextOf=d=>isLoan(d)?loanInfo(d).nextDate:d.nextDate;
 
 /* ---------- данные ---------- */
 let debts=[];
@@ -163,20 +197,23 @@ document.addEventListener("visibilitychange",()=>{if(document.hidden&&dirty&&CS&
 
 /* ---------- экран ---------- */
 function render(){
-  const open=debts.filter(d=>d.balance>0.005);
-  $("total").textContent=money(open.reduce((s,d)=>s+d.balance,0));
+  const open=debts.filter(d=>balOf(d)>0.005);
+  $("total").textContent=money(open.reduce((s,d)=>s+balOf(d),0));
   $("count").textContent=open.length?open.length+" "+plural(open.length,"долг","долга","долгов"):"";
-  const sorted=debts.slice().sort((a,b)=>(a.balance<=0.005)-(b.balance<=0.005)||(a.nextDate||"9").localeCompare(b.nextDate||"9"));
+  const sorted=debts.slice().sort((a,b)=>(balOf(a)<=0.005)-(balOf(b)<=0.005)||(nextOf(a)||"9").localeCompare(nextOf(b)||"9"));
   $("list").innerHTML=sorted.length?sorted.map(item).join(""):
     `<div class="empty"><b>Долгов пока нет</b><p class="note">Нажмите «Добавить долг» и впишите первый: сколько должны, платёж и дату.</p></div>`;
 }
 function item(d){
-  const done=d.balance<=0.005;
-  const late=!done&&d.nextDate&&d.nextDate<today;
-  const when=done?"Погашен":d.nextDate?(late?"Просрочен с "+dLabel(d.nextDate):(d.nextDate===today?"Сегодня":dLabel(d.nextDate))):"Дата не указана";
+  const L=isLoan(d)?loanInfo(d):null;
+  const bal=balOf(d),next=nextOf(d),pay=L?L.nextAmount:d.payment;
+  const done=bal<=0.005;
+  const late=!done&&next&&next<today;
+  const when=done?"Погашен":next?(late?"Просрочен с "+dLabel(next):(next===today?"Сегодня":dLabel(next))):"Дата не указана";
   return `<div class="debt${done?" done":""}">
-    <button class="debt-top" data-act="edit" data-id="${esc(d.id)}"><span><span class="n">${esc(d.name)}</span><br><span class="b">${esc(d.bank||"")}</span></span><span class="sum">${money(d.balance)}</span></button>
-    <div class="debt-bottom"><span class="when${late?" late":""}">${d.payment&&!done?"Платёж "+money(d.payment)+" · ":""}${when}</span>${done?"":`<button class="pay" data-act="pay" data-id="${esc(d.id)}">Оплатил</button>`}</div>
+    <button class="debt-top" data-act="edit" data-id="${esc(d.id)}"><span><span class="n">${esc(d.name)}</span><br><span class="b">${esc(d.bank||"")}</span></span>
+      <span style="text-align:right"><span class="sum">${money(bal)}</span>${L&&!done?`<br><span class="sub">по графику, с процентами</span>`:""}</span></button>
+    <div class="debt-bottom"><span class="when${late?" late":""}">${pay&&!done?"Платёж "+money(pay)+" · ":""}${when}${L&&!done?`<br><span class="sub">Осталось ${L.left} из ${L.total} платежей</span>`:""}</span>${done?"":`<button class="pay" data-act="pay" data-id="${esc(d.id)}">Оплатил</button>`}</div>
   </div>`;
 }
 const plural=(n,a,b,c)=>{const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<12||h>14)?b:c};
@@ -195,37 +232,85 @@ function closeSheet(){$("scrim").hidden=true;sheet=null}
 const field=(k,label,val,o={})=>`<label class="field${o.half?" half":""}"><span class="label">${label}</span><input class="in" id="${k}" name="${k}" type="${o.type||"text"}"${o.num?' inputmode="decimal"':""} value="${esc(val==null?"":String(val).replace(o.num?".":"\u0000",","))}" placeholder="${esc(o.ph||"")}" autocomplete="off">${o.hint?`<span class="hint">${o.hint}</span>`:""}</label>`;
 
 function debtForm(d){
-  const v=d||{name:"",bank:"",balance:"",payment:"",nextDate:"",monthly:true};
-  openSheet(d?"Долг":"Новый долг",`<div class="fields">
-    ${field("name","Название",v.name,{ph:"Например, кредитка Т-Банка"})}
+  const v=d||{kind:"simple",name:"",bank:"",balance:"",payment:"",nextDate:"",monthly:true};
+  const k=v.kind==="loan"?"loan":"simple";
+  const L=d&&isLoan(d)?loanInfo(d):null;
+  const facts=L?`<div class="facts">
+      <div><span>Осталось платежей</span><b>${L.left} из ${L.total}</b></div>
+      <div><span>Следующий</span><b>${L.nextDate?money(L.nextAmount)+", "+dLabel(L.nextDate):"—"}</b></div>
+      <div><span>Осталось по графику</span><b>${money(L.remaining)}</b></div>
+      <div><span>Уже заплатил</span><b>${money(L.paidSum)}</b></div>
+      <div><span>Последний платёж</span><b>${L.lastDate?money(L.last)+", "+new Date(L.lastDate+"T00:00:00").toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"}):"—"}</b></div>
+      <div><span>Всего по графику</span><b>${money(L.schedTotal)}</b></div>
+      ${L.overpay!=null?`<div><span>Переплата</span><b style="color:var(--out)">${money(L.overpay)}</b></div>`:""}
+      ${d.rate?`<div><span>Ставка</span><b>${fmt.format(d.rate)}% годовых</b></div>`:""}
+    </div>`:"";
+  openSheet(d?"Долг":"Новый долг",`${facts}<div class="fields">
+    <div class="seg" role="radiogroup"><label><input type="radio" name="kind" value="simple" ${k==="simple"?"checked":""}>Долг</label><label><input type="radio" name="kind" value="loan" ${k==="loan"?"checked":""}>Кредит с графиком</label></div>
+    ${field("name","Название",v.name,{ph:"Например, кредит наличными"})}
     ${field("bank","Кому должен",v.bank,{ph:"Банк или человек, необязательно"})}
-    ${field("balance","Сколько должен, ₽",v.balance,{num:true,half:true})}
-    ${field("payment","Платёж, ₽",v.payment,{num:true,half:true,hint:"Необязательно"})}
-    ${field("nextDate","Следующий платёж",v.nextDate,{type:"date",hint:"Необязательно"})}
-    <label class="check"><input type="checkbox" id="monthly" ${v.monthly!==false?"checked":""}> Платёж каждый месяц</label>
+    <div class="sect" data-for="simple">
+      ${field("balance","Сколько должен, ₽",v.balance,{num:true,half:true})}
+      ${field("payment","Платёж, ₽",k==="simple"?v.payment:"",{num:true,half:true,hint:"Необязательно"})}
+      ${field("nextDate","Следующий платёж",v.nextDate,{type:"date",hint:"Необязательно"})}
+      <label class="check"><input type="checkbox" id="monthly" ${v.monthly!==false?"checked":""}> Платёж каждый месяц</label>
     </div>
-    ${d&&(d.payments||[]).length?`<span class="label">Оплаты</span><div class="hist">${d.payments.slice().reverse().map(p=>`<div><span>${dLabel(p.date)}</span><b>${money(p.amount)}</b></div>`).join("")}</div>`:""}`,
+    <div class="sect" data-for="loan">
+      ${field("amount","Сумма кредита, ₽",v.amount,{num:true,half:true})}
+      ${field("rate","Ставка, % годовых",v.rate,{num:true,half:true})}
+      ${field("issued","Дата выдачи",v.issued,{type:"date",half:true})}
+      ${field("total","Всего платежей",v.total,{num:true,half:true,hint:"Срок в месяцах"})}
+      ${field("lpayment","Ежемесячный платёж, ₽",k==="loan"?v.payment:"",{num:true,half:true})}
+      ${field("lastPayment","Последний платёж, ₽",v.lastPayment,{num:true,half:true,hint:"Если отличается"})}
+      ${field("firstPay","Дата первого платежа",v.firstPay,{type:"date",half:true,hint:"Дальше тем же числом каждый месяц"})}
+      ${field("paidBefore","Уже внесено платежей",v.paidBefore,{num:true,half:true,hint:"До того, как завели в приложении"})}
+    </div>
+    </div>
+    ${d&&(d.payments||[]).length?`<span class="label">Оплаты в приложении</span><div class="hist">${d.payments.slice().reverse().map(p=>`<div><span>${dLabel(p.date)}</span><b>${money(p.amount)}</b></div>`).join("")}</div>`:""}`,
     ()=>{
+      const kind=document.querySelector('#f [name=kind]:checked').value;
       const name=$("name").value.trim();if(!name)return "Введите название.";
-      const bal=parseNum($("balance").value);if(!isFinite(bal)||bal<0)return "Введите, сколько должны.";
-      const pay=parseNum($("payment").value);
-      const o={...(d||{id:uid(),payments:[],created:Date.now()}),name,bank:$("bank").value.trim(),balance:r2(bal),
-        payment:isFinite(pay)&&pay>0?r2(pay):null,nextDate:$("nextDate").value||"",monthly:$("monthly").checked};
+      const base={...(d||{id:uid(),payments:[],created:Date.now()}),kind,name,bank:$("bank").value.trim()};
+      let o;
+      if(kind==="loan"){
+        const total=parseInt($("total").value,10);if(!(total>=1&&total<=600))return "Укажите, сколько всего платежей.";
+        const pay=parseNum($("lpayment").value);if(!(pay>0))return "Укажите ежемесячный платёж.";
+        const first=$("firstPay").value;if(!first)return "Укажите дату первого платежа.";
+        const pb=parseInt($("paidBefore").value||"0",10);if(!(pb>=0&&pb<=total))return "Проверьте, сколько платежей уже внесено.";
+        const amt=parseNum($("amount").value),rate=parseNum($("rate").value),lp=parseNum($("lastPayment").value);
+        o={...base,total,payment:r2(pay),firstPay:first,paidBefore:pb,amount:amt>0?r2(amt):null,rate:rate>0?rate:null,
+          lastPayment:lp>0?r2(lp):null,issued:$("issued").value||""};
+      }else{
+        const bal=parseNum($("balance").value);if(!isFinite(bal)||bal<0)return "Введите, сколько должны.";
+        const pay=parseNum($("payment").value);
+        o={...base,balance:r2(bal),payment:isFinite(pay)&&pay>0?r2(pay):null,nextDate:$("nextDate").value||"",monthly:$("monthly").checked};
+      }
       const i=debts.findIndex(x=>x.id===o.id);if(i>=0)debts[i]=o;else debts.push(o);
       save();
     },
     d?()=>{debts=debts.filter(x=>x.id!==d.id);save()}:null);
+  showKind();
+}
+/* Показывать только поля выбранного вида долга. */
+function showKind(){
+  const r=document.querySelector('#f [name=kind]:checked');if(!r)return;
+  document.querySelectorAll('#f .sect').forEach(el=>{el.hidden=el.dataset.for!==r.value});
 }
 function payForm(d){
+  const L=isLoan(d)?loanInfo(d):null;
+  const after=L?(L.left>1?"Следующий платёж по графику: "+dLabel(schedDate(d.firstPay,L.paidCount+1))+".":"Это последний платёж."):
+    (d.monthly!==false&&d.nextDate?"Сумма вычтется из долга, следующий платёж переедет на "+dLabel(nextMonth(d.nextDate))+".":"Сумма вычтется из долга.");
   openSheet("Оплата: "+d.name,`<div class="fields">
-    ${field("amount","Сколько заплатил, ₽",d.payment||"",{num:true,half:true})}
+    ${field("amount","Сколько заплатил, ₽",L?L.nextAmount:(d.payment||""),{num:true,half:true})}
     ${field("date","Когда",today,{type:"date",half:true})}
-    </div><p class="note">Сумма вычтется из долга${d.monthly!==false&&d.nextDate?", следующий платёж переедет на "+dLabel(nextMonth(d.nextDate)):""}.</p>`,
+    </div><p class="note">${L?"Засчитается за платёж "+dLabel(L.nextDate)+", даже если внесли раньше. ":""}${after}</p>`,
     ()=>{
       const a=parseNum($("amount").value);if(!isFinite(a)||a<=0)return "Введите сумму.";
       d.payments=(d.payments||[]).concat({id:uid(),date:$("date").value||today,amount:r2(a)});
-      d.balance=r2(Math.max(0,d.balance-a));
-      if(d.monthly!==false&&d.nextDate)d.nextDate=nextMonth(d.nextDate);
+      if(!L){
+        d.balance=r2(Math.max(0,d.balance-a));
+        if(d.monthly!==false&&d.nextDate)d.nextDate=nextMonth(d.nextDate);
+      }
       save();
     });
 }
@@ -246,6 +331,7 @@ document.addEventListener("click",e=>{
   }
 });
 $("add").addEventListener("click",()=>debtForm(null));
+$("sheet").addEventListener("change",e=>{if(e.target.name==="kind")showKind()});
 $("sheet").addEventListener("submit",e=>{
   e.preventDefault();if(!sheet)return;
   const err=sheet.onSave();
