@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--bg:#0a0b10;--panel:#14161f;--line:#23263a;--txt:#f4efe6;--mut:#8a8fa3;--gold:#f2c14e;--pump:#ff7a1a;--up:#3ddc84;--down:#ff5a5a}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;font-family:Inter,sans-serif;color:var(--txt)}
+.f{width:1080px;height:1920px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 35%,#1a1220 0%,var(--bg) 60%)}
+.five{position:absolute;font:900 1500px/1 'Inter Display';color:transparent;-webkit-text-stroke:3px rgba(255,122,26,.10);left:50%;top:48%;transform:translate(-50%,-50%)}
+.kick{font:800 30px Inter;letter-spacing:12px;color:var(--gold);text-align:center}
+.intro{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:40px;padding:0 90px;text-align:center}
+.pumpkin{font-size:150px;filter:drop-shadow(0 0 60px rgba(255,122,26,.6))}
+.h1{font:900 104px/1 'Inter Display';letter-spacing:-2px;text-transform:uppercase}
+.h1 b{color:var(--pump)}
+.pill{border:3px solid var(--pump);color:var(--pump);border-radius:60px;padding:16px 44px;font:800 40px Inter;letter-spacing:4px}
+.tease{font:500 46px/1.35 Inter;color:var(--mut);max-width:860px}
+.tease em{font-style:normal;color:var(--txt)}
+.tbl{padding:90px 64px 0}
+.tbl .h1{font-size:76px;text-align:center;margin:18px 0 10px}
+.sub{text-align:center;font:600 34px Inter;color:var(--mut);margin-bottom:36px}
+.hd{display:grid;grid-template-columns:70px 1fr 150px 140px 110px;font:700 24px Inter;color:var(--mut);letter-spacing:2px;padding:0 24px 14px}
+.r{display:grid;grid-template-columns:70px 1fr 150px 140px 110px;align-items:center;height:74px;margin-bottom:9px;background:var(--panel);border-radius:18px;padding:0 24px;font:600 36px Inter}
+.r .p{color:var(--mut);font-weight:800}.r .s{text-align:center;color:var(--mut);font-size:32px}.r .d{text-align:center;font-size:32px}
+.r .pts{justify-self:end;width:86px;height:56px;border-radius:14px;background:#1f2333;display:grid;place-items:center;font:900 38px 'Inter Display'}
+.r.top{outline:3px solid var(--gold)}.r.top .pts{background:var(--gold);color:#111}
+.r.bot{outline:2px solid rgba(255,122,26,.5)}
+.cut{border-top:3px dashed var(--line);margin:4px 0 16px}
+.foot{position:absolute;bottom:70px;width:100%;text-align:center;font:600 30px Inter;color:var(--mut)}
+</style></head><body>
+<div class="f" id="intro"><div class="five">5</div><div class="intro">
+<div class="kick">FR FANTASY</div><div class="pumpkin">🎃</div>
+<div class="h1">Конференция<br><b>Зидана</b></div>
+<div class="pill">ТУРЫ 8 · 9 · 10</div>
+<div class="tease">Зизу видел всё.<br><em>Не все пережили эти три тура…</em></div>
+</div></div>
+<div class="f" id="table"><div class="tbl">
+<div class="kick">ТОЧКА ОТСЧЁТА</div><div class="h1">После 7-го тура</div><div class="sub">Так всё было до Хэллоуина 🎃</div>
+<div class="hd"><span>#</span><span>КОМАНДА</span><span style="text-align:center">В-Н-П</span><span style="text-align:center">РАЗН.</span><span style="text-align:right">ОЧКИ</span></div>
+<div id="rows"></div></div><div class="foot">Дальше — туры 8, 9 и 10 →</div></div>
+<script>
+(d=>{const el=document.getElementById('rows');
+d.forEach(t=>{const row=document.createElement('div');row.className='r'+(t.pos==1?' top':'')+(t.pos==16?' bot':'');
+row.innerHTML=`<span class="p">${t.pos}</span><span>${t.team}</span><span class="s">${t.w}-${t.d}-${t.l}</span><span class="d" style="color:${t.diff>=0?'var(--up)':'var(--down)'}">${t.diff>0?'+':''}${t.diff}</span><span class="pts">${t.pts}</span>`;
+el.appendChild(row);if(t.pos==8){const c=document.createElement('div');c.className='cut';el.appendChild(c)}});document.body.dataset.ready=1})([
+ {"pos":1,"team":"Лина Справедливости","w":6,"d":1,"l":0,"diff":132,"pts":19,"chg":0},
+ {"pos":2,"team":"Каткон","w":5,"d":1,"l":1,"diff":103,"pts":16,"chg":1},
+ {"pos":3,"team":"Муслики","w":5,"d":0,"l":2,"diff":63,"pts":15,"chg":2},
+ {"pos":4,"team":"Мопед","w":4,"d":2,"l":1,"diff":80,"pts":14,"chg":-2},
+ {"pos":5,"team":"SaREAL","w":4,"d":2,"l":1,"diff":59,"pts":14,"chg":-1},
+ {"pos":6,"team":"Sevastopol","w":3,"d":3,"l":1,"diff":105,"pts":12,"chg":1},
+ {"pos":7,"team":"Los blancos","w":4,"d":0,"l":3,"diff":-28,"pts":12,"chg":-1},
+ {"pos":8,"team":"Олеся не прощает","w":3,"d":1,"l":3,"diff":7,"pts":10,"chg":1},
+ {"pos":9,"team":"Cherrypie","w":3,"d":1,"l":3,"diff":-7,"pts":10,"chg":1},
+ {"pos":10,"team":"ДыханиеКосмоса","w":2,"d":1,"l":4,"diff":20,"pts":7,"chg":-2},
+ {"pos":11,"team":"Natalie Ramos","w":2,"d":1,"l":4,"diff":-107,"pts":7,"chg":0},
+ {"pos":12,"team":"FC KAKA","w":2,"d":0,"l":5,"diff":-98,"pts":6,"chg":0},
+ {"pos":13,"team":"А игроки? Так вот они","w":1,"d":2,"l":4,"diff":-59,"pts":5,"chg":0},
+ {"pos":14,"team":"Деды с Чамартина","w":1,"d":1,"l":5,"diff":-80,"pts":4,"chg":2},
+ {"pos":15,"team":"Hazardous Burgers","w":1,"d":1,"l":5,"diff":-85,"pts":4,"chg":-1},
+ {"pos":16,"team":"Bernabeu Bedlam","w":1,"d":1,"l":5,"diff":-105,"pts":4,"chg":-1}
+]
+);
+</script></body></html>

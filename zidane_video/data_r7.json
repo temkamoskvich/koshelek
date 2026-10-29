@@ -1,0 +1,18 @@
+[
+ {"pos":1,"team":"Лина Справедливости","w":6,"d":1,"l":0,"diff":132,"pts":19,"chg":0},
+ {"pos":2,"team":"Каткон","w":5,"d":1,"l":1,"diff":103,"pts":16,"chg":1},
+ {"pos":3,"team":"Муслики","w":5,"d":0,"l":2,"diff":63,"pts":15,"chg":2},
+ {"pos":4,"team":"Мопед","w":4,"d":2,"l":1,"diff":80,"pts":14,"chg":-2},
+ {"pos":5,"team":"SaREAL","w":4,"d":2,"l":1,"diff":59,"pts":14,"chg":-1},
+ {"pos":6,"team":"Sevastopol","w":3,"d":3,"l":1,"diff":105,"pts":12,"chg":1},
+ {"pos":7,"team":"Los blancos","w":4,"d":0,"l":3,"diff":-28,"pts":12,"chg":-1},
+ {"pos":8,"team":"Олеся не прощает","w":3,"d":1,"l":3,"diff":7,"pts":10,"chg":1},
+ {"pos":9,"team":"Cherrypie","w":3,"d":1,"l":3,"diff":-7,"pts":10,"chg":1},
+ {"pos":10,"team":"ДыханиеКосмоса","w":2,"d":1,"l":4,"diff":20,"pts":7,"chg":-2},
+ {"pos":11,"team":"Natalie Ramos","w":2,"d":1,"l":4,"diff":-107,"pts":7,"chg":0},
+ {"pos":12,"team":"FC KAKA","w":2,"d":0,"l":5,"diff":-98,"pts":6,"chg":0},
+ {"pos":13,"team":"А игроки? Так вот они","w":1,"d":2,"l":4,"diff":-59,"pts":5,"chg":0},
+ {"pos":14,"team":"Деды с Чамартина","w":1,"d":1,"l":5,"diff":-80,"pts":4,"chg":2},
+ {"pos":15,"team":"Hazardous Burgers","w":1,"d":1,"l":5,"diff":-85,"pts":4,"chg":-1},
+ {"pos":16,"team":"Bernabeu Bedlam","w":1,"d":1,"l":5,"diff":-105,"pts":4,"chg":-1}
+]
