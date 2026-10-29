@@ -25,3 +25,10 @@ for f in ['r8.json','r9.json','r10.json']:
     states.append(snapshot(order))
 open('video_data.js','w').write('const STATES='+json.dumps(states,ensure_ascii=False)+';\n')
 for s in states[1:]:print([ (x['rank'],x['team'],x['pts']) for x in s][:9])
+# official order after round 10 from the platform (resolves the Мопед/Муслики tie)
+OFFICIAL=["Лина Справедливости","Каткон","SaREAL","Мопед","Муслики","Los blancos","Sevastopol","Cherrypie","Bernabeu Bedlam","Олеся не прощает","Natalie Ramos","FC KAKA","ДыханиеКосмоса","Hazardous Burgers","Деды с Чамартина","А игроки? Так вот они"]
+last={x['team']:x for x in states[-1]}
+assert set(OFFICIAL)==set(last)
+states[-1]=[dict(last[k],idx=i,rank=i+1) for i,k in enumerate(OFFICIAL)]
+open('video_data.js','w').write('const STATES='+json.dumps(states,ensure_ascii=False)+';\n')
+print([(x['rank'],x['team'],x['w'],x['d'],x['l'],x['pts']) for x in states[-1]])
