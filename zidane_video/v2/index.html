@@ -204,7 +204,7 @@ function drawTable(k,p){const from=byTeam[Math.max(0,k-1)],to=byTeam[k],pp=k?p:0
 const SC=TL.scenes,LN=TL.lines;
 const sceneAt=t=>SC.find(s=>t>=s.start&&t<s.end)||SC[SC.length-1];
 function speaking(t,sp){for(const l of LN){if(l.sp===sp&&t>=l.start&&t<l.end){const i=Math.floor((t-l.start)*FPS);return l.env[Math.min(i,l.env.length-1)]||0}}return 0}
-const lineAt=t=>LN.find(l=>t>=l.start-0.05&&t<l.end+0.35);
+const lineAt=t=>{let r=null;for(const l of LN)if(t>=l.start-0.05&&t<l.end+0.25)r=l;return r};
 const linesOf=id=>LN.filter(l=>l.scene===id);
 const SUBY={close:560,table:1392,battle:930,card:1000,count:1000,reveal:1050};
 

@@ -1,5 +1,5 @@
 import json,subprocess,wave,numpy as np
-FPS=30;PAD=0.06;TYKVA_PITCH=1.26  # ~+4 semitones so the pumpkin differs from Zizu
+FPS=30;PAD=0.06
 sc=json.load(open('script.json'))
 segs={'z':json.load(open('rec/zizu_full.segs.json')),'p':json.load(open('rec/tykva_full.segs.json'))}
 src={'z':'rec/zizu_full.mp3','p':'rec/tykva_full.mp3'};idx={'z':0,'p':0}
@@ -8,7 +8,7 @@ for s in sc:
     s['start']=round(t,3);cur=t+s['lead']
     for sp,text in s['lines']:
         a,b=segs[sp][idx[sp]];idx[sp]+=1;f=f'voice/{n:02d}.wav'
-        af=f"atrim={max(0,a-PAD)}:{b+PAD},asetpts=PTS-STARTPTS,aresample=44100"+(f",rubberband=pitch={TYKVA_PITCH}:formant=preserved" if sp=='p' else '')+",afade=t=in:d=0.03,areverse,afade=t=in:d=0.05,areverse"
+        af=f"atrim={max(0,a-PAD)}:{b+PAD},asetpts=PTS-STARTPTS,aresample=44100"+",afade=t=in:d=0.03,areverse,afade=t=in:d=0.05,areverse"
         subprocess.run(['ffmpeg','-loglevel','error','-y','-i',src[sp],'-af',af,'-ac','1',f],check=True)
         w=wave.open(f);sr=w.getframerate();x=np.frombuffer(w.readframes(w.getnframes()),dtype=np.int16).astype(float);L=len(x)/sr
         hop=sr//FPS;env=np.array([np.sqrt(np.mean(x[i:i+hop]**2)) for i in range(0,len(x),hop)])

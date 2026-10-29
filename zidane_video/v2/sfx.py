@@ -50,14 +50,22 @@ def sting():
     for f in (880,932,1245,1319):x+=np.sin(2*math.pi*f*t+3*np.sin(2*math.pi*7*t))*0.22
     x*=env(n,0.004,0.5);_,b=svf(rng.standard_normal(n),np.full(n,3000.0),0.6);return x+0.5*b/np.max(np.abs(b))*env(n,0.001,0.15)
 def prop(d):
-    n=int(d*SR);t=np.arange(n)/SR;lp,_=svf(rng.standard_normal(n),np.full(n,400.0),0.9)
-    return lp/np.max(np.abs(lp))*(0.55+0.45*np.sin(2*math.pi*27*t))
+    # rotor chop (band-passed noise gated ~22 Hz) + small motor whine, sits in the 0.8-3 kHz range phones reproduce
+    n=int(d*SR);t=np.arange(n)/SR;_,b=svf(rng.standard_normal(n),np.full(n,1400.0),0.35);b/=np.max(np.abs(b))
+    chop=0.25+0.75*(0.5+0.5*np.sin(2*math.pi*22*t))**3
+    ph=2*math.pi*(180*t+3*np.sin(2*math.pi*0.7*t));whine=0.25*np.sign(np.sin(ph))*0.5+0.15*np.sin(2*ph)
+    lp,_=svf(whine,np.full(n,1600.0),0.7)
+    fade=np.minimum(1,np.minimum(t/0.3,(d-t)/0.3));return (0.8*b*chop+lp)*fade
 lines=lambda sid:[l for l in L if l['scene']==sid]
 put(thunder(),0.0,0.55)
 for s in tl['scenes']:
     st,en,lt0=s['start'],s['end'],s['start']
     if s['id']!='open': put(whoosh(0.45,500,3500),st-0.2,0.22)
-    if s['type'] in('close','card','count','reveal','battle'):put(prop(en-st),st,0.035 if s['type']=='close' else 0.02)
+    G={'close':0.32,'count':0.32,'card':0.22,'battle':0.22,'reveal':0.2,'table':0.16}[s['type']]
+    pe=en
+    if s['id']=='head': pe=st+lines('head')[2]['end']-st+0.25  # pumpkin is knocked out of frame
+    put(prop(pe-st),st,G)
+    if s['id']=='head': put(whoosh(0.9,1800,400)*0.6,pe-0.05,0.3)
     if s['type']=='table' and s['state']>0: put(whoosh(1.75,150,1800),st+0.35,0.16);put(thump(120,50,0.15),st+2.1,0.35)
     if s['type']=='card':
         put(thump(160,50,0.2),st+0.25,0.45)
@@ -85,6 +93,6 @@ for s in tl['scenes']:
         n=int((en-st)*SR);_,b=svf(rng.standard_normal(n),np.full(n,1800.0),0.7);put(b/np.max(np.abs(b))*np.minimum(1,np.arange(n)/SR/0.5)*np.minimum(1,(en-st-np.arange(n)/SR)/0.6),st,0.05)
     if s['id']=='outro':
         bt=lines('outro')[1]['start'];put(sting(),bt-0.02,0.5);put(boom(True),bt-0.02,0.6);put(whoosh(0.4,300,3000),bt+0.1,0.25)
-out=out[:int(T*SR)];out/=max(1,np.max(np.abs(out))/0.9)
+out=out[:int(T*SR)];out=np.tanh(out*1.1)/1.1*0.95  # soft clip instead of global normalisation
 w=wave.open('sfx.wav','wb');w.setnchannels(1);w.setsampwidth(2);w.setframerate(SR);w.writeframes((out*32767).astype(np.int16).tobytes());w.close()
 print('sfx ok',round(len(out)/SR,2))
