@@ -121,6 +121,7 @@ body{font-family:Inter,sans-serif;color:var(--txt)}
 </div></div>
 </div>
 <script src="video_data.js"></script>
+<script src="timeline.js"></script>
 <script>
 const DUR=52, R0=7.5, RD=5.8, STEP=83;
 const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x)), lerp=(a,b,p)=>a+(b-a)*p;
@@ -143,13 +144,15 @@ STATES[0].forEach(s=>{const e=document.createElement('div');e.className='r';e.in
 $('cut').style.top=(8*STEP-6)+'px';
 const byTeam=STATES.map(st=>Object.fromEntries(st.map(s=>[s.team,s])));
 function set(id,o,tf){const e=$(id);e.style.opacity=o;if(tf!==undefined)e.style.transform=tf}
-function seek(t){
- // background
- $('five').style.transform=`translate(-50%,-50%) scale(${1+.03*Math.sin(t*.4)})`;
- $('glow').style.opacity=.75+.25*Math.sin(t*2.2);
+function tauOf(t){let acc=0;for(const [h,d] of HOLDS){if(t<h+acc)return t-acc;if(t<h+acc+d)return h;acc+=d}return t-acc}
+function seek(tr){
+ const t=tauOf(tr);
+ // background runs on real time so holds never look frozen
+ $('five').style.transform=`translate(-50%,-50%) scale(${1+.03*Math.sin(tr*.4)})`;
+ $('glow').style.opacity=.75+.25*Math.sin(tr*2.2);
  // intro
  const oi=fade(t,0,.6,4.1,4.6); set('intro',oi);
- $('pk').style.transform=`scale(${.6+.4*out(seg(t,.2,1.2))}) rotate(${Math.sin(t*3)*4}deg)`;
+ $('pk').style.transform=`scale(${.6+.4*out(seg(t,.2,1.2))}) rotate(${Math.sin(tr*3)*4}deg)`;
  $('tease').style.opacity=seg(t,1.6,2.4);
  // table
  const ot=fade(t,4.6,5.1,24.8,25.3); set('table',ot);
@@ -202,12 +205,12 @@ function seek(t){
  $('cn').textContent=n;
  // reveal
  set('reveal',fade(t,44.7,44.9,48.6,49.0));
- $('crown').style.transform=`translateY(${(1-out(seg(t,45.2,46.0)))*-260}px) rotate(-12deg)`;$('crown').style.opacity=seg(t,45.2,45.5);
+ $('crown').style.transform=`translateY(${(1-out(seg(t,45.2,45.9)))*-110}px) rotate(-12deg)`;$('crown').style.opacity=seg(t,45.35,45.75);
  $('rteam').style.transform=`scale(${.7+.3*out(seg(t,44.8,45.4))})`;
  $('duo').style.opacity=seg(t,46.0,46.4);$('rnote').style.opacity=seg(t,46.6,47.0);
  // outro
  set('outro',fade(t,49.0,49.4,51.4,52));
  document.body.dataset.t=t;
 }
-window.seek=seek; window.DUR=DUR; seek(0); document.body.dataset.ready=1;
+window.seek=seek; window.DUR=TOTAL; seek(0); document.body.dataset.ready=1;
 </script></body></html>
