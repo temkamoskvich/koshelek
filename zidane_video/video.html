@@ -1,0 +1,207 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--bg:#0a0b10;--panel:#14161f;--panel2:#1f2333;--line:#2a2e44;--txt:#f4efe6;--mut:#8a8fa3;--gold:#f2c14e;--pump:#ff7a1a;--up:#3ddc84;--down:#ff5a5a}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden;background:var(--bg)}
+body{font-family:Inter,sans-serif;color:var(--txt)}
+#stage{position:absolute;inset:0;overflow:hidden;background:radial-gradient(ellipse at 50% 38%,#1c1322 0%,var(--bg) 62%)}
+.scene{position:absolute;inset:0;opacity:0;isolation:isolate;z-index:1}
+#flash{z-index:10}
+#five{position:absolute;font:900 1500px/1 'Inter Display';color:transparent;-webkit-text-stroke:3px rgba(255,122,26,.09);left:50%;top:50%}
+#glow{position:absolute;width:900px;height:900px;left:90px;top:420px;border-radius:50%;background:radial-gradient(circle,rgba(255,122,26,.16),transparent 65%)}
+.kick{font:800 30px Inter;letter-spacing:12px;color:var(--gold);text-align:center}
+.h1{font:900 104px/1 'Inter Display';letter-spacing:-2px;text-transform:uppercase;text-align:center}
+.h1 b{color:var(--pump)}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;padding:0 80px;text-align:center}
+.pill{border:3px solid var(--pump);color:var(--pump);border-radius:60px;padding:16px 44px;font:800 40px Inter;letter-spacing:4px}
+.tease{font:500 46px/1.35 Inter;color:var(--mut)}
+.tease em{font-style:normal;color:var(--txt)}
+.emoji{font-size:150px;line-height:1;filter:drop-shadow(0 0 60px rgba(255,122,26,.55))}
+/* table */
+#thead{position:absolute;top:80px;left:0;right:0}
+#thead .h1{font-size:76px;margin-top:16px}
+#cols{position:absolute;top:266px;left:48px;right:48px;display:grid;grid-template-columns:62px 66px 1fr 126px 120px 96px;padding:0 22px;font:700 22px Inter;color:var(--mut);letter-spacing:2px}
+#rows{position:absolute;top:304px;left:48px;right:48px;height:1340px}
+.r{position:absolute;left:0;right:0;height:74px;display:grid;grid-template-columns:62px 66px 1fr 126px 120px 96px;align-items:center;background:var(--panel);border-radius:18px;padding:0 22px;font:600 34px Inter;white-space:nowrap}
+.r .p{color:var(--mut);font-weight:800}.r .c{font:800 26px Inter}.r .n{overflow:hidden;text-overflow:ellipsis}
+.r .s{text-align:center;color:var(--mut);font-size:30px}.r .d{text-align:center;font-size:30px}
+.r .pts{justify-self:end;width:84px;height:56px;border-radius:14px;background:var(--panel2);display:grid;place-items:center;font:900 36px 'Inter Display'}
+.r.top{box-shadow:inset 0 0 0 3px var(--gold)}.r.top .pts{background:var(--gold);color:#111}
+#cut{position:absolute;left:48px;right:48px;border-top:3px dashed #3a3f5c}
+#flash{background:rgba(10,11,16,.82)}
+#flash .big{font:900 230px/1 'Inter Display';letter-spacing:-6px}
+#flash .big b{color:var(--pump)}
+#flash .sub{font:600 50px/1.3 Inter;color:var(--txt)}
+#caption{position:absolute;left:48px;right:48px;top:1676px;min-height:160px;border-radius:24px;background:#1a1410;border:2px solid rgba(255,122,26,.45);padding:24px 30px;font:600 34px/1.35 Inter;display:flex;align-items:center;opacity:0}
+#caption b{color:var(--pump)}
+/* cards */
+.card .tag{font:800 30px Inter;letter-spacing:8px;color:var(--gold)}
+.card .ref{font:600 34px Inter;color:var(--mut);margin-top:-18px}
+.card .num{font:900 300px/1 'Inter Display';letter-spacing:-8px;color:var(--pump)}
+.card .team{font:800 70px/1.1 'Inter Display'}
+.card .note{font:500 42px/1.4 Inter;color:var(--mut);max-width:880px}
+.card .note em{font-style:normal;color:var(--txt)}
+/* battle */
+.br{display:grid;grid-template-columns:70px 1fr 110px;align-items:center;width:900px;height:110px;border-radius:22px;background:var(--panel);padding:0 34px;font:700 44px Inter;text-align:left}
+.br .pts{text-align:right;font:900 54px 'Inter Display'}
+.br.in{box-shadow:inset 0 0 0 3px var(--up)}.br.out{box-shadow:inset 0 0 0 3px var(--down)}
+.bline{width:900px;border-top:4px dashed var(--pump);position:relative}
+.bline span{position:absolute;right:0;top:-22px;background:var(--bg);padding:0 0 0 14px;font:800 26px Inter;color:var(--pump);letter-spacing:4px}
+#count .q{font:800 76px/1.15 'Inter Display'}
+#count .n{font:900 520px/1 'Inter Display';color:var(--pump);position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center}
+#reveal .team{font:900 96px/1.05 'Inter Display';color:var(--gold)}
+.duo{display:flex;flex-direction:column;gap:18px;width:900px}
+.duo .br{width:900px}
+</style></head><body><div id="stage">
+<div id="glow"></div><div id="five">5</div>
+
+<div class="scene" id="intro"><div class="center">
+ <div class="kick">FR FANTASY</div><div class="emoji" id="pk">🎃</div>
+ <div class="h1">Конференция<br><b>Зидана</b></div>
+ <div class="pill">ТУРЫ 8 · 9 · 10</div>
+ <div class="tease" id="tease">Зизу видел всё.<br><em>Не все пережили эти три тура…</em></div>
+</div></div>
+
+<div class="scene" id="table">
+ <div id="thead"><div class="kick" id="tkick">ТОЧКА ОТСЧЁТА</div><div class="h1" id="ttitle">После 7-го тура</div></div>
+ <div id="cols"><span>#</span><span></span><span>КОМАНДА</span><span style="text-align:center">В-Н-П</span><span style="text-align:center">РАЗН.</span><span style="text-align:right">ОЧКИ</span></div>
+ <div id="rows"><div id="cut"></div></div>
+ <div id="caption"><div id="captxt"></div></div>
+</div>
+<div class="scene" id="flash"><div class="center"><div class="kick" style="letter-spacing:6px;font-size:26px">FR FANTASY · КОНФЕРЕНЦИЯ ЗИДАНА</div><div class="big" id="fbig"></div><div class="sub" id="fsub"></div></div></div>
+
+<div class="scene card" id="card0"><div class="center">
+ <div class="tag">ЛУЧШИЙ ТУР</div><div class="ref">«Волей из Глазго» · 2002</div>
+ <div class="num" id="c0num">82</div><div class="team">Los blancos</div>
+ <div class="note">Тур 9. Как Зизу в финале ЛЧ —<br><em>с лёта и в девятку.</em></div>
+</div></div>
+<div class="scene card" id="card1"><div class="center">
+ <div class="tag">ГЛАВНЫЙ ВЗЛЁТ</div><div class="ref">«Ночь живых мертвецов» 🧟</div>
+ <div class="num" id="c1num">16 → 9</div><div class="team">Bernabeu Bedlam</div>
+ <div class="note">Было последнее место.<br><em>7 очков из 9 — и плюс 7 позиций.</em></div>
+</div></div>
+<div class="scene card" id="card2"><div class="center">
+ <div class="tag">ГЛАВНОЕ ПАДЕНИЕ</div><div class="ref">«Удар головой» · Берлин, 2006</div>
+ <div class="num" id="c2num">−3</div><div class="team">ДыханиеКосмоса<br><span style="color:var(--mut);font-size:44px">и</span><br>А игроки? Так вот они</div>
+ <div class="note">По 1 очку из 9 у каждой.<br><em>«А игроки?» — на последнем месте.</em></div>
+</div></div>
+
+<div class="scene" id="battle"><div class="center" style="gap:22px">
+ <div class="kick">БИТВА У ЧЕРТЫ</div><div class="h1" style="font-size:84px;margin-bottom:30px">Кто в восьмёрке?</div>
+ <div class="br"><span style="color:var(--mut)">7</span><span>Sevastopol</span><span class="pts">16</span></div>
+ <div class="br in" id="b8"><span style="color:var(--mut)">8</span><span>Cherrypie ▲</span><span class="pts">14</span></div>
+ <div class="bline" id="bl"><span>ЧЕРТА</span></div>
+ <div class="br" id="b9"><span style="color:var(--mut)">9</span><span>Bernabeu Bedlam</span><span class="pts">11</span></div>
+ <div class="br out" id="b10"><span style="color:var(--mut)">10</span><span>Олеся не прощает ▼</span><span class="pts">10</span></div>
+ <div class="tease" style="margin-top:34px;font-size:38px;width:960px" id="bnote">Cherrypie обыграла лидера и держится в зоне.<br><em>«Олеся не прощает»… но и не набирает: 0 из 9.</em></div>
+</div></div>
+
+<div class="scene" id="count"><div class="center"><div class="q" id="cq">А кто на вершине<br>после 10 туров?</div></div><div class="n" id="cn"></div></div>
+
+<div class="scene" id="reveal"><div class="center" style="gap:30px">
+ <div class="kick">ЛИДЕР КОНФЕРЕНЦИИ</div><div class="emoji" id="crown">👑</div>
+ <div class="team" id="rteam">Лина<br>Справедливости</div>
+ <div class="tease" style="color:var(--txt)">25 очков · разница +147</div>
+ <div class="duo" id="duo">
+  <div class="br" style="box-shadow:inset 0 0 0 3px var(--gold)"><span style="color:var(--gold)">1</span><span>Лина Справедливости</span><span class="pts">25</span></div>
+  <div class="br"><span style="color:var(--mut)">2</span><span>FC Pepelats</span><span class="pts">25</span></div>
+ </div>
+ <div class="tease" id="rnote" style="font-size:42px">Очков поровну. Корону решила разница —<br><em>всего 20 фэнтези-очков.</em></div>
+</div></div>
+
+<div class="scene" id="outro"><div class="center">
+ <div class="emoji">🎃</div>
+ <div class="h1" style="font-size:96px">Счастливого<br><b>Хэллоуина</b></div>
+ <div class="tease"><em>Зизу следит за вами.</em><br>Увидимся после 11-го тура.</div>
+ <div class="kick" style="margin-top:40px;letter-spacing:6px;font-size:26px">FR FANTASY · КОНФЕРЕНЦИЯ ЗИДАНА</div>
+</div></div>
+</div>
+<script src="video_data.js"></script>
+<script>
+const DUR=52, R0=7.5, RD=5.8, STEP=83;
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x)), lerp=(a,b,p)=>a+(b-a)*p;
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const io=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2, out=p=>1-Math.pow(1-p,3);
+const fade=(t,a,b,c,d)=>Math.min(seg(t,a,b),1-seg(t,c,d));
+const $=id=>document.getElementById(id);
+const FLASH=[
+ ['ТУР <b>8</b>','Низ таблицы оживает…'],
+ ['ТУР <b>9</b>','Три ничьих на волоске'],
+ ['ТУР <b>10</b>','Ночь перед Хэллоуином 🎃']];
+const CAPS=[
+ '🧟 <span><b>Bernabeu Bedlam</b> и <b>Hazardous Burgers</b> — сразу +4 места. Разгром тура: Sevastopol 51:24</span>',
+ '🚀 <span><b>SaREAL</b> разносит «Дедов» 77:39 и взлетает на 3-е место. Cherrypie врывается в восьмёрку</span>',
+ '😱 <span>Лидер упал: <b>Cherrypie 73:58 Лина Справедливости</b>. FC Pepelats догнал по очкам — 25:25</span>'];
+// build rows
+const rowEl={};
+STATES[0].forEach(s=>{const e=document.createElement('div');e.className='r';e.innerHTML='<span class="p"></span><span class="c"></span><span class="n"></span><span class="s"></span><span class="d"></span><span class="pts"></span>';$('rows').appendChild(e);rowEl[s.team]=e});
+$('cut').style.top=(8*STEP-6)+'px';
+const byTeam=STATES.map(st=>Object.fromEntries(st.map(s=>[s.team,s])));
+function set(id,o,tf){const e=$(id);e.style.opacity=o;if(tf!==undefined)e.style.transform=tf}
+function seek(t){
+ // background
+ $('five').style.transform=`translate(-50%,-50%) scale(${1+.03*Math.sin(t*.4)})`;
+ $('glow').style.opacity=.75+.25*Math.sin(t*2.2);
+ // intro
+ const oi=fade(t,0,.6,4.1,4.6); set('intro',oi);
+ $('pk').style.transform=`scale(${.6+.4*out(seg(t,.2,1.2))}) rotate(${Math.sin(t*3)*4}deg)`;
+ $('tease').style.opacity=seg(t,1.6,2.4);
+ // table
+ const ot=fade(t,4.6,5.1,24.8,25.3); set('table',ot);
+ let k=0,p=0;
+ for(let i=1;i<=3;i++){const a=R0+(i-1)*RD+1.2;if(t>=a){k=i;p=io(seg(t,a,a+1.8))}}
+ const from=byTeam[Math.max(0,k-1)], to=byTeam[k];
+ const shown=(k>0&&p>=.5)?k:Math.max(0,k-1);
+ $('tkick').textContent=shown?'КОНФЕРЕНЦИЯ ЗИДАНА':'ТОЧКА ОТСЧЁТА';
+ $('ttitle').textContent=`После ${7+shown}-го тура`;
+ for(const team in rowEl){
+  const e=rowEl[team], f=from[team], g=k?to[team]:from[team], pp=k?p:0;
+  const y=lerp(f.idx,g.idx,pp)*STEP; e.style.top=y+'px';
+  const cur=byTeam[shown][team];
+  let chg=shown?byTeam[shown-1][team].idx-cur.idx:cur.chg;
+  const c=e.children;
+  c[0].textContent=cur.rank;
+  c[1].innerHTML=chg>0?`<span style="color:var(--up)">▲${chg}</span>`:chg<0?`<span style="color:var(--down)">▼${-chg}</span>`:'<span style="color:var(--mut)">—</span>';
+  c[2].textContent=(team==='Каткон'&&shown>0)?'FC Pepelats':team;
+  c[3].textContent=`${cur.w}-${cur.d}-${cur.l}`;
+  const df=Math.round(lerp(f.diff,g.diff,pp)); c[4].textContent=(df>0?'+':'')+df; c[4].style.color=df>=0?'var(--up)':'var(--down)';
+  c[5].textContent=Math.round(lerp(f.pts,g.pts,pp));
+  e.classList.toggle('top',cur.rank===1&&cur.idx===0);
+  // movement tint
+  let tint='var(--panel)';
+  if(k>0){const mv=from[team].idx-to[team].idx, a=R0+(k-1)*RD+1.2, w=Math.min(seg(t,a,a+.6),1-seg(t,a+2.6,a+3.6));
+   if(mv>0)tint=`rgba(61,220,132,${.22*w})`;else if(mv<0)tint=`rgba(255,90,90,${.18*w})`;
+   if(mv!==0)tint=`linear-gradient(${tint},${tint}),var(--panel)`;}
+  e.style.background=tint;
+  e.style.zIndex=k&&from[team].idx>to[team].idx?2:1;
+ }
+ // flash + caption
+ let fo=0,co=0;
+ for(let i=0;i<3;i++){const b=R0+i*RD;
+  const f=fade(t,b,b+.25,b+1.05,b+1.35); if(f>0){fo=f;$('fbig').innerHTML=FLASH[i][0];$('fsub').innerHTML=FLASH[i][1];$('fbig').style.transform=`scale(${1.15-.15*out(seg(t,b,b+.5))})`}
+  const end=i<2?b+RD-.15:25; const c=fade(t,b+2.6,b+3.0,end-.35,end); if(c>0){co=c;$('captxt').innerHTML=CAPS[i];$('captxt').style.display='flex';$('captxt').style.gap='18px'}}
+ set('flash',fo); $('caption').style.opacity=co; $('caption').style.transform=`translateY(${(1-out(clamp(co)))*30}px)`;
+ // cards
+ for(let i=0;i<3;i++){const a=25.3+i*3.6,b=a+3.6;const o=fade(t,a,a+.35,b-.3,b);
+  set('card'+i,o,`translateY(${(1-out(seg(t,a,a+.5)))*60}px)`)}
+ const a0=25.3;$('c0num').style.transform=`translateX(${(1-out(seg(t,a0+.1,a0+.8)))*700}px) rotate(${(1-out(seg(t,a0+.1,a0+.8)))*-40}deg)`;
+ const a1=28.9,q=out(seg(t,a1+.4,a1+1.6));$('c1num').textContent=`16 → ${Math.round(lerp(16,9,q))}`;
+ const a2=32.5,sh=seg(t,a2+.35,a2+1.1);$('c2num').style.transform=`translateX(${Math.sin(sh*40)*36*(1-sh)}px) scale(${1+.25*(1-out(seg(t,a2+.2,a2+.6)))})`;
+ // battle
+ const ob=fade(t,36.1,36.5,40.4,40.8); set('battle',ob);
+ [['b8',36.6],['bl',37.0],['b9',37.2],['b10',37.4],['bnote',38.0]].forEach(([id,s])=>{$(id).style.opacity=seg(t,s,s+.4);$(id).style.transform=`translateX(${(1-out(seg(t,s,s+.5)))*-80}px)`});
+ // countdown
+ set('count',fade(t,40.8,41.1,44.7,44.9));
+ $('cq').style.opacity=1-seg(t,42.0,42.2);
+ let n='';[[3,42.2],[2,43.0],[1,43.8]].forEach(([v,s])=>{if(t>=s&&t<s+.8){n=v;const pp=seg(t,s,s+.8);$('cn').style.transform=`translateY(-50%) scale(${1.4-.5*out(pp)})`;$('cn').style.opacity=1-seg(t,s+.55,s+.8)}});
+ $('cn').textContent=n;
+ // reveal
+ set('reveal',fade(t,44.7,44.9,48.6,49.0));
+ $('crown').style.transform=`translateY(${(1-out(seg(t,44.8,45.6)))*-200}px)`;
+ $('rteam').style.transform=`scale(${.7+.3*out(seg(t,44.8,45.4))})`;
+ $('duo').style.opacity=seg(t,46.0,46.4);$('rnote').style.opacity=seg(t,46.6,47.0);
+ // outro
+ set('outro',fade(t,49.0,49.4,51.4,52));
+ document.body.dataset.t=t;
+}
+window.seek=seek; window.DUR=DUR; seek(0); document.body.dataset.ready=1;
+</script></body></html>
