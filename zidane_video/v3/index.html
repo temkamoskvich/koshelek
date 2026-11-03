@@ -91,7 +91,7 @@ html,body{width:1080px;height:1920px;overflow:hidden;background:#06070a;font-fam
 </div></div>
 
 <div class="layer" id="L_outro"><div id="outrot"><div class="h1" style="font-size:84px">Увидимся<br>после <b>12-го тура</b></div><div class="kick" style="margin-top:26px">FR FANTASY · КОНФЕРЕНЦИЯ ЗИДАНА</div></div>
- <div id="disc">Зизу — пародийный персонаж. Голоса синтезированы.</div></div>
+ <div id="disc">Зизу — пародийный персонаж. Голос синтезирован.</div></div>
 
 <div id="sub"></div>
 
@@ -197,12 +197,12 @@ function mkP(){const g=new THREE.Group();const body=new THREE.Group();g.add(body
  const legs=[];for(const s of[-1,1]){const pv=new THREE.Group();pv.position.set(s*0.2,-0.38,0);const l=box(0.07,0.38,0.07,mat({color:0x2b2b33}));l.position.y=-0.19;pv.add(l);const f=box(0.14,0.07,0.16,mat({color:0x2b2b33}));f.position.set(0,-0.4,0.03);pv.add(f);body.add(pv);legs.push(pv)}
  const glow=new THREE.PointLight(0xff8a2a,2.2,4,1.5);glow.position.set(0,0,0.7);body.add(glow);
  return {g,body,prop,legs,face:pf,glow}}
-const P=mkP();scene.add(P.g);
+const P=mkP();// pumpkin sidekick retired after Halloween: kept for rig compatibility, never shown
 
 /* ball + decor */
 const ballT=pix(8,8,(p)=>{for(let y=0;y<8;y++)for(let x=0;x<8;x++)p(x,y,((x>>1)+(y>>1))%2&&(x%3==1)?'#1a1a1a':'#f4f4f4')});
 const ball=box(0.32,0.32,0.32,mat({map:ballT}));scene.add(ball);ball.visible=false;
-const decor=[];for(const [x,z,s] of[[-3.2,-2.6,0.7],[2.9,-3.2,0.9],[3.8,-1.2,0.5],[-4.6,-4.5,0.9]]){const d=mkP();d.g.scale.setScalar(s);d.g.position.set(x,0.38*s,z);d.prop.visible=false;d.legs.forEach(l=>l.visible=false);d.glow.intensity=1.2;scene.add(d.g);decor.push(d)}
+const decor=[];for(const [x,z,s] of[[-3.2,-2.6,0.7],[2.9,-3.2,0.9],[3.8,-1.2,0.5],[-4.6,-4.5,0.9]]){const d=mkP();d.g.scale.setScalar(s);d.g.position.set(x,0.38*s,z);d.prop.visible=false;d.legs.forEach(l=>l.visible=false);d.glow.intensity=1.2;scene.add(d.g);decor.push(d)}decor.forEach(d=>d.g.visible=false);
 
 /* camera framing: subject point appears at screen (sx,sy) */
 function frame(pos,look,fov,sx,sy){camera.fov=fov;camera.position.set(...pos);camera.lookAt(...look);camera.setViewOffset(W,H,W/2-sx,H/2-sy,W,H);camera.updateProjectionMatrix()}
@@ -232,7 +232,7 @@ const SUBY={close:560,table:1392,battle:930,card:1000,count:1000,reveal:1050};
 
 function poseReset(){Z.g.position.set(0,0,0);Z.g.rotation.set(0,0,0);Z.body.rotation.set(0,0,0);Z.head.rotation.set(0,0,0);
  Z.arms.forEach(a=>a.rotation.set(0,0,0));Z.legs.forEach(l=>l.rotation.set(0,0,0));
- P.g.position.set(-1.35,2.75,0.35);P.g.rotation.set(0,0,0);P.g.scale.setScalar(1);P.g.visible=true;ball.visible=false}
+ P.g.visible=false;ball.visible=false}
 
 function seek(t){
  const s=sceneAt(t),lt=t-s.start,dur=s.end-s.start;
@@ -249,14 +249,11 @@ function seek(t){
  // scene specifics + camera
  const ty=s.type;
  if(ty==='close'){
-  if(s.id==='outro'){const L=linesOf('outro'),tb=L[1].start-s.start;
-   Z.arms[1].rotation.set(0,0,2.5+0.35*Math.sin(lt*9));// wave
-   if(lt>tb){const q=out(seg(lt,tb,tb+0.35));P.g.position.set(lerp(-1.35,-0.4,q),lerp(2.75,2.9,q),lerp(0.35,2.0,q));P.g.rotation.y=lerp(.35,0,q);
-    const j=seg(lt,tb+0.1,tb+0.7);Z.g.position.y=Math.sin(j*Math.PI)*0.55;Z.arms.forEach((a,i)=>a.rotation.set(0,0,(i?1:-1)*2.7));Z.mouth.scale.y=1.8;Z.head.rotation.x=-0.15;Z.g.position.x=0.25*q}}
-  frame([0.2,2.6,6.6*push],[-0.6,2.5,0],38,540,1250);
+  if(s.id==='outro'){Z.arms[1].rotation.set(0,0,2.5+0.35*Math.sin(lt*9))}
+  frame([0.15,2.6,5.6*push],[0,2.45,0],38,540,1250);
  }else if(ty==='table'){
   P.g.position.set(-1.8,2.85,0.2);P.g.rotation.y=0.25+0.15*Math.sin(t*1.1);
-  frame([-0.9,3.0,14],[-0.9,2.85,0],24,540,1712);
+  frame([0,3.0,14],[0,2.85,0],24,540,1712);
  }else if(ty==='card'||ty==='battle'){
   P.g.position.set(-1.5,2.4,0.4);
   if(s.card===0){const k0=0.9;const kp=lt<k0?0:seg(lt,k0,k0+0.18)-seg(lt,k0+0.35,k0+0.8);Z.legs[1].rotation.x=-1.5*kp+0.3*seg(lt,k0-0.4,k0)*(lt<k0?1:0);Z.arms[0].rotation.z=-0.9*kp;Z.arms[1].rotation.z=0.6*kp;Z.body.rotation.x=-0.15*kp;
@@ -265,14 +262,14 @@ function seek(t){
    Z.legs[0].rotation.x=-0.2*j*w;Z.legs[1].rotation.x=0.2*j*w}
   if(s.card===2){const w=io(seg(lt,0.3,0.7));Z.arms.forEach((a,i)=>a.rotation.set(-0.35*w,0,(i?1:-1)*0.95*w));Z.head.rotation.z=0.22*w*Math.sin(lt*1.4);Z.head.rotation.x=-0.1*w;Z.body.position.y=1.1+0.06*w;
    P.g.rotation.z=0.25*Math.sin(t*2.5)}
-  frame([0,1.75,11*push],[-0.35,1.65,0],38,540,1500);
+  frame([0,1.75,11*push],[0,1.65,0],38,540,1500);
  }else if(ty==='count'){
-  frame([0.2,2.6,6.6*push],[-0.6,2.5,0],38,540,1300);
+  frame([0.15,2.6,5.6*push],[0,2.45,0],38,540,1300);
  }else if(ty==='reveal'){
   const c=Math.abs(Math.sin(lt*9));Z.arms.forEach((a,i)=>a.rotation.set(-1.2,0,(i?-1:1)*(0.15+0.32*c)));
   const ku=linesOf('reveal')[1],kw=seg(t,ku.start-0.1,ku.start+0.15)-seg(t,ku.end+0.6,ku.end+0.9);
   if(kw>0){Z.arms.forEach((a,i)=>a.rotation.set(-0.2*kw,0,(i?1:-1)*1.1*kw));Z.g.position.y=-0.22*kw;Z.legs.forEach((l,i)=>l.rotation.z=(i?1:-1)*0.18*kw);Z.head.rotation.x=0.12*kw}
-  frame([0,1.75,11],[-0.35,1.65,0],38,540,1500);
+  frame([0,1.75,11],[0,1.65,0],38,540,1500);
  }
  key.target.position.set(Z.g.position.x,1.8,0);
  renderer.render(scene,camera);

@@ -75,9 +75,6 @@ put(thunder(),0.0,0.55)
 for s in tl['scenes']:
     st,en,lt0=s['start'],s['end'],s['start']
     if s['id']!='open': put(whoosh(0.45,500,3500),st-0.2,0.22)
-    G={'close':0.32,'count':0.32,'card':0.22,'battle':0.22,'reveal':0.2,'table':0.16}[s['type']]
-    pe=en
-    put(prop(pe-st),st,G)
     if s['type']=='table' and s['state']>0: put(whoosh(1.75,150,1800),st+0.35,0.16);put(thump(120,50,0.15),st+2.1,0.35)
     if s['type']=='card':
         put(thump(160,50,0.2),st+0.25,0.45)
@@ -102,9 +99,7 @@ for s in tl['scenes']:
             if st+tt>en-0.1:break
             put(clap(),st+tt+rng.uniform(-0.01,0.01),0.28)
         n=int((en-st)*SR);_,b=svf(rng.standard_normal(n),np.full(n,1800.0),0.7);put(b/np.max(np.abs(b))*np.minimum(1,np.arange(n)/SR/0.5)*np.minimum(1,(en-st-np.arange(n)/SR)/0.6),st,0.05)
-    if s['id']=='outro':
-        bl=lines('outro')[1];bt=bl['end']+0.02  # hit lands right after the word so «Бу!» stays clear
-        put(whoosh(0.4,300,3000),bl['start']-0.3,0.2);put(sting(),bt,0.5);put(boom(True),bt,0.6)
+    if s['id']=='outro': put(chime(),en-1.6,0.3)
 out=out[:int(T*SR)];out=np.tanh(out*1.1)/1.1*0.95  # soft clip instead of global normalisation
 w=wave.open('sfx.wav','wb');w.setnchannels(1);w.setsampwidth(2);w.setframerate(SR);w.writeframes((out*32767).astype(np.int16).tobytes());w.close()
 print('sfx ok',round(len(out)/SR,2))
