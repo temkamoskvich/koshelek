@@ -100,6 +100,7 @@ for s in tl['scenes']:
             put(clap(),st+tt+rng.uniform(-0.01,0.01),0.28)
         n=int((en-st)*SR);_,b=svf(rng.standard_normal(n),np.full(n,1800.0),0.7);put(b/np.max(np.abs(b))*np.minimum(1,np.arange(n)/SR/0.5)*np.minimum(1,(en-st-np.arange(n)/SR)/0.6),st,0.05)
     if s['id']=='outro': put(chime(),en-1.6,0.3)
+    if s['id']=='open': put(chime(),st+0.4,0.25)  # trophy sparkle as Ушастый appears
 out=out[:int(T*SR)];out=np.tanh(out*1.1)/1.1*0.95  # soft clip instead of global normalisation
 w=wave.open('sfx.wav','wb');w.setnchannels(1);w.setsampwidth(2);w.setframerate(SR);w.writeframes((out*32767).astype(np.int16).tobytes());w.close()
 print('sfx ok',round(len(out)/SR,2))
